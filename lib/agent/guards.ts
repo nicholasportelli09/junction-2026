@@ -5,7 +5,7 @@
 // in its head. Telling it not to in the instructions is not enough; this makes it impossible to get through.
 
 export type Trip = {
-  kind: "broken-tool-call" | "claimed-without-doing" | "announced-without-doing" | "offered-instead-of-doing" | "unsourced-number";
+  kind: "broken-tool-call" | "claimed-without-doing" | "wrong-status" | "announced-without-doing" | "offered-instead-of-doing" | "unsourced-number";
   nudge: string; // what the model is told before it tries again
   forceTool: boolean | string; // whether the retry must be a tool call, or the name of the tool it must call
 };
@@ -13,7 +13,13 @@ export type Trip = {
 export type GuardState = {
   toolsCalledThisTurn: number;
   actionPreparedThisTurn: boolean;
-  earlierActions: { switches: boolean; transfers: boolean }; // what was set up in earlier turns and still stands
+  earlierActions: {
+    switches: boolean; // what was set up in earlier turns and still stands (waiting or carried out)
+    transfers: boolean;
+    waiting?: { switches: boolean; transfers: boolean }; // of those, what still waits for the customer's tap on Approve
+    done?: { switches: boolean; transfers: boolean }; // of those, what the customer approved and the demo bank carried out
+  };
+  askedToAct?: boolean; // whether the customer asked for something to be set up in this message. Unknown counts as yes
   unsourced: number[]; // numbers in this sentence that the verifier could not source
   saidSoFar: string; // what has already been accepted in this reply
 };
@@ -28,16 +34,28 @@ const IS_WAITING = /\b(is|it['’]s|are) (now )?(set up|waiting for (you|your))\
 const ABOUT_EARLIER = /\b(already|earlier|before|previously|last time)\b/i;
 const ABOUT_A_SWITCH = /\b(switch|contract|deal|provider|electricity|mobile|internet)\b/i;
 const ABOUT_A_TRANSFER = /\b(transfer|savings?|invest\w*|payday)\b/i;
-function earlierCovers(sentence: string, earlier: GuardState["earlierActions"]): boolean {
-  if (ABOUT_A_SWITCH.test(sentence)) return earlier.switches;
-  if (ABOUT_A_TRANSFER.test(sentence)) return earlier.transfers;
-  return earlier.switches || earlier.transfers;
+type Kinds = { switches: boolean; transfers: boolean };
+function covers(sentence: string, kinds: Kinds): boolean {
+  if (ABOUT_A_SWITCH.test(sentence)) return kinds.switches;
+  if (ABOUT_A_TRANSFER.test(sentence)) return kinds.transfers;
+  return kinds.switches || kinds.transfers;
 }
 function claimsWithoutDoing(sentence: string, state: GuardState): boolean {
   if (state.actionPreparedThisTurn) return false;
-  const earlier = earlierCovers(sentence, state.earlierActions);
-  if (I_DID.test(sentence)) return !(earlier && ABOUT_EARLIER.test(sentence));
+  const earlier = covers(sentence, state.earlierActions);
+  if (I_DID.test(sentence)) {
+    // "I moved 500 euros to savings" is simply true once the customer approved it and it was carried out, as long
+    // as they are asking about it and not asking for something new.
+    const reportsWhatWasDone = state.askedToAct === false && !!state.earlierActions.done && covers(sentence, state.earlierActions.done);
+    return !(reportsWhatWasDone || (earlier && ABOUT_EARLIER.test(sentence)));
+  }
   return IS_WAITING.test(sentence) && !earlier;
+}
+// "It is waiting for your tap on Approve" about something the customer has already approved: nothing is waiting.
+function saysWaitingButDone(sentence: string, state: GuardState): boolean {
+  const { waiting, done } = state.earlierActions;
+  if (state.actionPreparedThisTurn || !waiting || !done || !IS_WAITING.test(sentence)) return false;
+  return covers(sentence, done) && !covers(sentence, waiting);
 }
 // "I searched for average rents" when no search was made in this reply.
 const CLAIMS_LOOKED = /\bi(?:['’]ve| have)?\s+(?:just\s+)?(searched|looked (it |that |this )?up|checked|scanned|went through|compared|calculated|worked (it |that |this )?out)\b/i;
@@ -83,6 +101,13 @@ export const asksForChart = (text: string): boolean => CHART.test(text) && !OVER
 export const BROKEN_TRIP: Trip = { kind: "broken-tool-call", nudge: "Your last reply broke off in the middle of a tool call. Call the tool you meant to call now, with no text before it.", forceTool: true };
 
 export function checkSentence(sentence: string, state: GuardState): Trip | null {
+  if (saysWaitingButDone(sentence, state)) {
+    return {
+      kind: "wrong-status",
+      nudge: "Nothing is waiting for approval. The customer already approved that and it was carried out in the demo bank. Say what was done and the balances as they stand now (ACCOUNTS NOW), and do not ask for a tap on Approve. Do not call prepare_action: nothing new was asked for.",
+      forceTool: false,
+    };
+  }
   if (claimsWithoutDoing(sentence, state)) {
     return {
       kind: "claimed-without-doing",

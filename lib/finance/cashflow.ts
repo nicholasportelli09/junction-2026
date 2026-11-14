@@ -70,7 +70,7 @@ export function buildCashFlow(overview: Overview): CashFlow {
 
   const steps: CalcStep[] = nextPayday
     ? [
-        { label: "Balance today", amount: overview.balance, basis: `account balance on ${DATA_AS_OF}` },
+        { label: "Balance today", amount: overview.balance, basis: overview.balanceBasis ?? `account balance on ${DATA_AS_OF}` },
         { label: `Bills expected before payday (${billsDueBeforePayday.length})`, amount: -billsTotal, basis: "each bill's 12-month average, on its usual day of the month" },
         { label: `Everyday spending for ${daysToNextPayday} days`, amount: -everydayUntilPayday, basis: `€${averageDailyEverydayEur.toFixed(2)} a day, the 12-month average` },
         { label: "Expected balance just before payday", amount: projectedLowPointEur ?? 0, basis: `next payday expected on ${nextPayday}` },
