@@ -180,7 +180,7 @@ export function impactOf(action: AgentAction): ActionImpact | null {
   const overview = buildOverview(action.customerId);
   if (!overview) return null;
   const monthly = action.monthlyAmountEur;
-  if (action.kind === "property_watch") return null; // a watch changes nothing about their money until they choose a flat
+  if (action.kind === "property_watch" || action.kind === "price_watch") return null; // a watch changes nothing about their money until they choose a flat
   if (action.kind === "standing_transfer") {
     return { monthlyEur: monthly, yearlyEur: round2(monthly * 12), horizonYears: IMPACT_YEARS, branches: [], gainVsNothingEur: 0, summary: `€${Math.round(monthly * 12 * IMPACT_YEARS)} set aside over ${IMPACT_YEARS} years. This moves your own money; it does not create new money.` };
   }

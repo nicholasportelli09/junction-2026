@@ -40,12 +40,12 @@ export function WatchPanel({ watches, notifications, onCheck, onStop, onSimulate
 
   if (!watches.length && !notifications.length) return null;
   return (
-    <section aria-label="Property watch" className="space-y-2 rounded-2xl border border-line bg-card p-3 text-sm">
-      <p className="text-xs font-semibold uppercase tracking-wide text-muted">Property watch</p>
+    <section aria-label="Watches" className="space-y-2 rounded-2xl border border-line bg-card p-3 text-sm">
+      <p className="text-xs font-semibold uppercase tracking-wide text-muted">Watching for you</p>
       {watches.map((watch) => (
         <div key={watch.id} className="space-y-1">
           <p className="font-semibold">
-            {watch.city}: €{watch.budgetEur} a month or less{watch.minRooms ? `, ${watch.minRooms}+ rooms` : ""} · {watch.status}
+            {watch.topic ?? `Flats in ${watch.city}`}: €{watch.budgetEur}{watch.priceUnit === "EUR/month" ? " a month" : ""} or less{watch.minRooms ? `, ${watch.minRooms}+ rooms` : ""} · {watch.status}
           </p>
           <p className="text-xs text-muted">
             {watch.mode === "monitor" ? "Watched by Context.dev monitors; Sisu polls their changes." : "No monitor: Sisu re-reads the pages on a timer."} Last checked: {time(watch.lastCheckedAt)}.
@@ -53,7 +53,7 @@ export function WatchPanel({ watches, notifications, onCheck, onStop, onSimulate
           <ul className="text-xs text-muted">
             {watch.pages.map((page) => (
               <li key={page.url}>
-                {host(page.url)} · {page.listings.length} flats read · {page.monitorId ?? "no monitor"}
+                {host(page.url)} · {page.listings.length} {watch.topic ? "offers" : "flats"} read · {page.monitorId ?? "no monitor"}
                 {page.lastChangeAt ? ` · changed ${time(page.lastChangeAt)}` : ""}
                 {page.lastError ? ` · ${page.lastError}` : ""}
               </li>

@@ -300,7 +300,7 @@ export function useSisu({ customerId, focusBill, speakReplies = true, language =
       const { action } = await approveAction(customerId, actionId);
       putAction(action);
       setMoment(makeActivity("approved", action.confirmation ?? "Done, as a simulation"));
-      if (action.kind === "property_watch") void refresh(); // the approval started a watch: load it
+      if (action.watch) void refresh(); // the approval started a watch: load it
       return action;
     },
     [customerId, refresh],

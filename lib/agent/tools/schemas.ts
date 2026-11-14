@@ -66,6 +66,12 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
     { city: { type: "string", description: "the city they named; leave out for where they live" }, budgetEur: { type: "number", description: "the monthly rent they said" }, minRooms: { type: "number", description: "only if they asked for a number of rooms" }, watch: { type: "boolean", description: "true if they asked you to keep watching even though some flats fit" } },
     ["budgetEur"],
   ),
+  tool(
+    "search_prices",
+    "Live search for what something costs today (a phone, a used car, a bike, anything sold online) against a price the customer said. If nothing is at that price it sets up a price watch for them to approve. Not for flats (search_flats) or their bills (search_offers).",
+    { what: { type: "string", description: "the thing, in a few plain words: 'iPhone 15', 'used Toyota Corolla'. No amounts" }, maxPriceEur: { type: "number", description: "the most they said they would pay" }, watch: { type: "boolean", description: "true if they asked you to keep watching even though some offers fit" } },
+    ["what", "maxPriceEur"],
+  ),
   tool("web_search", "Live web search (Exa) for anything in the outside world: rents and prices nearby, typical water or energy use, benefits, rates, rules, a company, how something works. Keep the query general: place and topic, no personal figures.", { query: { type: "string" }, deep: { type: "boolean", description: "true for an open question that needs several sources put together (who can get a benefit, what changes next year, how a rule works for someone like them). Takes a few seconds longer. Leave out for a single fact or price." } }, ["query"]),
   tool(
     "calculate",

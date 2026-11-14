@@ -7,7 +7,8 @@ import { safeName } from "../tools/untrusted";
 import { exaSearch } from "./exa";
 
 export type ListingPage = { url: string; title: string; listings: Listing[]; dropped: number; cacheAgeMs: number | null; tookMs: number; mock: boolean };
-export type ListingSearch = { city: string; query: string; pages: ListingPage[]; found: { url: string; title: string }[]; errors: string[]; retrievedAt: string; tookMs: number; mock: boolean };
+// topic: what was searched for when it is not flats (lib/agent/research/prices.ts); null for a flat search.
+export type ListingSearch = { city: string | null; topic: string | null; query: string; pages: ListingPage[]; found: { url: string; title: string }[]; errors: string[]; retrievedAt: string; tookMs: number; mock: boolean };
 
 const PAGE_TIMEOUT_MS = 16_000; // a page of listings takes Context.dev 7 to 13 seconds
 const MAX_LISTINGS_PER_PAGE = 12;
@@ -26,10 +27,10 @@ export const LISTING_SCHEMA = {
       type: "array",
       items: {
         type: "object",
-        required: ["title", "pricePerMonthEur", "rooms", "areaM2", "district", "city", "availableFrom", "url"],
+        required: ["title", "priceEur", "rooms", "areaM2", "district", "city", "availableFrom", "url"],
         properties: {
           title: { type: "string", description: "Street address of the flat, or the listing's short title" },
-          pricePerMonthEur: { type: ["number", "null"], description: "Rent per month in euros, as a number" },
+          priceEur: { type: ["number", "null"], description: "Rent per month in euros, as a number" },
           rooms: { type: ["number", "null"], description: "Number of rooms, not counting the kitchen" },
           areaM2: { type: ["number", "null"], description: "Living area in square metres" },
           district: { type: ["string", "null"], description: "District or neighbourhood" },
@@ -44,7 +45,6 @@ export const LISTING_SCHEMA = {
 export const LISTING_INSTRUCTIONS = `Flats offered for rent on this page. Use only facts stated on the page. At most ${MAX_LISTINGS_PER_PAGE} listings.`;
 
 type RawListing = Partial<Record<keyof Listing, unknown>>;
-type ScrapeResponse = { json?: { success?: boolean | null; data?: { listings?: RawListing[] } | null; message?: string }; cache_metadata?: { age_ms?: number } | null };
 
 const inRange = (value: unknown, [low, high]: [number, number]): number | null => (typeof value === "number" && Number.isFinite(value) && value >= low && value <= high ? value : null);
 const hostOf = (url: string): string | null => {
@@ -73,12 +73,12 @@ export function cleanListings(extracted: RawListing[], pageUrl: string): { listi
   const candidates = (Array.isArray(extracted) ? extracted : []).slice(0, MAX_LISTINGS_PER_PAGE);
   const listings = candidates.flatMap((raw): Listing[] => {
     const title = safeName(raw?.title, 90);
-    const price = inRange(raw?.pricePerMonthEur, RENT_LIMITS);
+    const price = inRange(raw?.priceEur, RENT_LIMITS);
     if (!title || price === null) return [];
     return [
       {
         title,
-        pricePerMonthEur: Math.round(price * 100) / 100,
+        priceEur: Math.round(price * 100) / 100,
         rooms: inRange(raw.rooms, ROOM_LIMITS),
         areaM2: inRange(raw.areaM2, AREA_LIMITS),
         district: safeName(raw.district, 50),
@@ -98,9 +98,11 @@ export const inCity = (listing: Listing, city: string): boolean => !listing.city
 // What makes two readings of a page the same flat: its own link if it has one, otherwise its address and size.
 export const listingKey = (listing: Listing): string => (listing.url !== listing.pageUrl ? listing.url : `${listing.pageUrl}#${listing.title.toLowerCase()}|${listing.rooms ?? "?"}|${listing.areaM2 ?? "?"}`);
 
-// Reads one page of rental listings with Context.dev. `fresh` asks for the page as it is now (a watch re-reading a
-// page that changed); otherwise a copy up to 15 minutes old is accepted and its age is reported.
-export async function readListings(url: string, options: { fresh?: boolean; signal?: AbortSignal; city?: string } = {}): Promise<ListingPage> {
+type ScrapeBody<T> = { json?: { success?: boolean | null; data?: T | null; message?: string }; cache_metadata?: { age_ms?: number } | null };
+
+// One Context.dev page read into a fixed shape. `fresh` asks for the page as it is now (a watch re-reading a page
+// that changed); otherwise a copy up to 15 minutes old is accepted and its age is reported.
+export async function scrapeJson<T>(url: string, schema: Record<string, unknown>, instructions: string, options: { fresh?: boolean; signal?: AbortSignal } = {}): Promise<{ data: T | null; cacheAgeMs: number | null; tookMs: number }> {
   const { contextDev } = getConfig();
   if (!contextDev.apiKey) throw missingKey("Context.dev", "CONTEXT_DEV_API_KEY");
   const started = Date.now();
@@ -109,21 +111,28 @@ export async function readListings(url: string, options: { fresh?: boolean; sign
     method: "POST",
     signal: options.signal ? AbortSignal.any([options.signal, timeout]) : timeout,
     headers: { Authorization: `Bearer ${contextDev.apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ url, formats: { json: true }, jsonParams: { schema: LISTING_SCHEMA, instructions: LISTING_INSTRUCTIONS }, sharedParams: { mainContentOnly: true }, maxAgeMs: options.fresh ? 0 : 15 * 60_000 }),
+    body: JSON.stringify({ url, formats: { json: true }, jsonParams: { schema, instructions }, sharedParams: { mainContentOnly: true }, maxAgeMs: options.fresh ? 0 : 15 * 60_000 }),
   });
   if (!response.ok) {
     console.error(`[agent] Context.dev returned ${response.status}: ${(await response.text().catch(() => "")).slice(0, 200)}`);
     throw new Error(response.status === 429 ? "Context.dev is at its limit of page reads for this minute." : `Context.dev could not read the page (${response.status}).`);
   }
-  const body = (await response.json()) as ScrapeResponse;
+  const body = (await response.json()) as ScrapeBody<T>;
   // A 200 response can still carry a failed output, so the success flag is checked on its own.
-  if (body.json?.success !== true) throw new Error(body.json?.message ?? "Context.dev found no listings on the page.");
-  const cleaned = cleanListings(body.json.data?.listings ?? [], url);
+  if (body.json?.success !== true) throw new Error(body.json?.message ?? "Context.dev found nothing to read on the page.");
+  const age = body.cache_metadata?.age_ms;
+  return { data: body.json.data ?? null, cacheAgeMs: typeof age === "number" ? age : null, tookMs: Date.now() - started };
+}
+
+export const hostName = (url: string): string => hostOf(url) ?? url;
+
+// Reads one page of rental listings with Context.dev.
+export async function readListings(url: string, options: { fresh?: boolean; signal?: AbortSignal; city?: string } = {}): Promise<ListingPage> {
+  const read = await scrapeJson<{ listings?: RawListing[] }>(url, LISTING_SCHEMA, LISTING_INSTRUCTIONS, options);
+  const cleaned = cleanListings(read.data?.listings ?? [], url);
   const { city } = options;
   const listings = city ? cleaned.listings.filter((listing) => inCity(listing, city)) : cleaned.listings;
-  const dropped = cleaned.dropped;
-  const age = body.cache_metadata?.age_ms;
-  return { url, title: hostOf(url) ?? url, listings, dropped, cacheAgeMs: typeof age === "number" ? age : null, tookMs: Date.now() - started, mock: false };
+  return { url, title: hostName(url), listings, dropped: cleaned.dropped, cacheAgeMs: read.cacheAgeMs, tookMs: read.tookMs, mock: false };
 }
 
 // A city name the customer said, safe to put in a search query: letters, spaces and hyphens only.
@@ -138,11 +147,11 @@ export const listingQuery = (city: string): string => `vuokra-asunnot ${city} va
 function mockSearch(city: string): ListingSearch {
   const pageUrl = `https://example.com/vuokra-asunnot/${city.toLowerCase()}`;
   const listings = [
-    { title: "Esimerkkikatu 4 A", pricePerMonthEur: 1_040, rooms: 1, areaM2: 31, district: "Kallio" },
-    { title: "Mallitie 12 B", pricePerMonthEur: 1_180, rooms: 2, areaM2: 44, district: "Vallila" },
-    { title: "Testikuja 7", pricePerMonthEur: 965, rooms: 1, areaM2: 27, district: "Malmi" },
+    { title: "Esimerkkikatu 4 A", priceEur: 1_040, rooms: 1, areaM2: 31, district: "Kallio" },
+    { title: "Mallitie 12 B", priceEur: 1_180, rooms: 2, areaM2: 44, district: "Vallila" },
+    { title: "Testikuja 7", priceEur: 965, rooms: 1, areaM2: 27, district: "Malmi" },
   ].map((listing, index) => ({ ...listing, city, availableFrom: null, url: `${pageUrl}/${index + 1}`, pageUrl }));
-  return { city, query: listingQuery(city), pages: [{ url: pageUrl, title: "example.com", listings, dropped: 0, cacheAgeMs: null, tookMs: 0, mock: true }], found: [{ url: pageUrl, title: "Example listings" }], errors: [], retrievedAt: new Date().toISOString(), tookMs: 0, mock: true };
+  return { city, topic: null, query: listingQuery(city), pages: [{ url: pageUrl, title: "example.com", listings, dropped: 0, cacheAgeMs: null, tookMs: 0, mock: true }], found: [{ url: pageUrl, title: "Example listings" }], errors: [], retrievedAt: new Date().toISOString(), tookMs: 0, mock: true };
 }
 
 // Finds rental listing pages for a city with Exa and reads the first few with Context.dev, side by side.
@@ -163,5 +172,5 @@ export async function searchListings(city: string, signal?: AbortSignal): Promis
   const reads = await Promise.allSettled(found.slice(0, MAX_PAGES).map((page) => readListings(page.url, { signal, city })));
   const pages = reads.flatMap((read, index) => (read.status === "fulfilled" && read.value.listings.length ? [{ ...read.value, title: found[index].title }] : []));
   const errors = reads.flatMap((read, index) => (read.status === "rejected" ? [`${hostOf(found[index].url)}: ${(read.reason as Error).message}`] : read.value.listings.length ? [] : [`${hostOf(found[index].url)}: no listings could be read`]));
-  return { city, query, pages, found: found.map((page) => ({ url: page.url, title: page.title })), errors, retrievedAt: new Date().toISOString(), tookMs: Date.now() - started, mock: false };
+  return { city, topic: null, query, pages, found: found.map((page) => ({ url: page.url, title: page.title })), errors, retrievedAt: new Date().toISOString(), tookMs: Date.now() - started, mock: false };
 }

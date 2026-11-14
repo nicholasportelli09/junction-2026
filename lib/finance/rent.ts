@@ -19,7 +19,7 @@ export type RentFit = {
 };
 
 // The one comparison a watch makes. A listing fits when its rent is at or under the budget, and it has the rooms asked for.
-export const withinBudget = (pricePerMonthEur: number, budgetEur: number): boolean => Number.isFinite(pricePerMonthEur) && pricePerMonthEur > 0 && pricePerMonthEur <= budgetEur;
+export const withinBudget = (priceEur: number, budgetEur: number): boolean => Number.isFinite(priceEur) && priceEur > 0 && priceEur <= budgetEur;
 
 export function currentHousing(overview: Overview): number {
   const housing = overview.baskets.flatMap((basket) => basket.categories).find((category) => category.category === "Housing");
