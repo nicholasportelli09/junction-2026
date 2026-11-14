@@ -486,7 +486,7 @@ export type HealthReport = {
   backup: { provider: string; name: string; inUseNow: boolean } | null; // inUseNow: the main model failed recently, so the backup is answering
   services: { exa: boolean; contextDev: boolean; elevenLabs: boolean };
   dataBoundary: string[];
-  store: { persistent: boolean; path: string | null };
+  store: { persistent: boolean; path: string | null; kind?: "file" | "supabase"; perVisitor?: boolean }; // kind and perVisitor: where state lives and whether each visitor has their own
   checkedAt: string;
 };
 

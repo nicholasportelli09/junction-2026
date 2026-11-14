@@ -2,6 +2,7 @@ import { breakerStatus } from "@/lib/agent/breaker";
 import { getConfig } from "@/lib/agent/config";
 import { storeInfo } from "@/lib/store/state";
 import type { HealthReport } from "@/lib/types";
+import { withVisitor } from "@/lib/agent/visitor";
 
 export const runtime = "nodejs";
 
@@ -11,7 +12,7 @@ const REGION: Record<string, string | null> = { verda: process.env.VERDA_REGION?
 // A page a judge can open to verify what is really running: the model actually being served, where, the
 // backup, which sponsor services are configured, and the data boundary. It asks the model server itself
 // which model it serves, so the answer cannot be a hard-coded string. Never returns keys.
-export async function GET() {
+export const GET = withVisitor(async function GET() {
   const config = getConfig();
   const host = config.isMock ? "none" : new URL(config.model.baseUrl || "http://unset").host;
   let reachable: boolean | null = null;
@@ -48,4 +49,4 @@ export async function GET() {
     checkedAt: new Date().toISOString(),
   };
   return Response.json(report, { headers: { "Cache-Control": "no-store" } });
-}
+});

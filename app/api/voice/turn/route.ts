@@ -4,6 +4,7 @@ import { warmUp } from "@/lib/agent/warm";
 import { AUTO } from "@/lib/agent/languages";
 import { MAX_AUDIO_BYTES, transcribe } from "@/lib/agent/speech";
 import type { AgentRequest, SisuEvent } from "@/lib/types";
+import { withVisitor } from "@/lib/agent/visitor";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -27,7 +28,7 @@ async function* voiceTurn(audio: Blob, base: Omit<AgentRequest, "text">, spoken:
 }
 
 // Recorded speech in, the same event stream as /api/agent/query out, starting with the transcript.
-export async function POST(request: Request) {
+export const POST = withVisitor(async function POST(request: Request) {
   if (!allowRequest(request, "agent", 30)) return TOO_MANY();
   void warmUp(); // no-op after the first request
   const form = await request.formData().catch(() => null);
@@ -48,4 +49,4 @@ export async function POST(request: Request) {
   const { customerId, history: turns, focusBill } = parsed;
   const spoken = typeof form?.get("language") === "string" ? String(form?.get("language")) : AUTO;
   return eventStream(voiceTurn(audio, { customerId, mode: "voice", history: turns, focusBill }, spoken, request.signal));
-}
+});

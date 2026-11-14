@@ -448,3 +448,68 @@ After a switch for a bill is approved, asking for it again (the money plan run a
 **d. Small purchases are a notice, not a saving**
 
 The money plan no longer counts "purchases under €10" as money found. It appears in `plan.notices`. A habit item is now always a gap against people the same age or against last year.
+
+## 16. Hosting, and a session for every visitor (new 14 Nov, evening)
+
+Nothing existing changed shape, and a laptop at the booth behaves exactly as before. This section is about a
+hosted site that many people open at once, for example from a QR code.
+
+**Before anything else: a frontend never connects to Supabase.** Supabase is where the server keeps its state. A
+frontend needs no Supabase address, key, token or library; it calls this server's API (`/api/...`) and nothing else.
+The table there is closed on purpose, so a direct query only returns a permission error.
+
+**a. Every visitor has their own state**
+
+On a hosted site two phones never see each other's approvals, memory or audit log. The server recognises a
+visitor by a session. What your client has to do:
+
+| Client | What to do |
+|---|---|
+| A page served by this server (the QR code case) | Nothing. The first request sets a `sisu_session` cookie and the browser sends it back. |
+| The iOS app, or anything with a cookie jar | Nothing. `URLSession` keeps the cookie. |
+| A page on another address (another host or port) | Keep the `X-Sisu-Session` value from any response and send it as the `X-Sisu-Session` header on every request. See below. |
+
+```ts
+// A page on another address: three lines around fetch. Cookies do not work across sites on iPhones, the header does.
+const API = "https://your-sisu-server.example";
+let session = localStorage.getItem("sisu-session") ?? "";
+export async function sisuFetch(path: string, init: RequestInit = {}) {
+  const response = await fetch(API + path, { ...init, headers: { ...init.headers, ...(session ? { "X-Sisu-Session": session } : {}) } });
+  const given = response.headers.get("X-Sisu-Session");
+  if (given && given !== session) localStorage.setItem("sisu-session", (session = given));
+  return response;
+}
+```
+
+The server must allow that address: set `SISU_CORS_ORIGINS` (below). Streams (`/api/agent/query`, `/api/agent/plan`,
+`/api/voice/turn`) work the same way; the session of the request is the session of the whole stream.
+
+**b. "Start over" is safe to call**
+
+Where visitors have their own session, `POST /api/demo/reset` clears only the caller's state and needs no token.
+Call it for a "start over" button. On the one shared state (the booth laptop) it still clears everyone, as in section 15.
+
+**c. Where the state lives: `store` on `GET /api/health`**
+
+`store.kind` is `"file"` or `"supabase"`, `store.perVisitor` says whether visitors are kept apart, and
+`store.persistent` is false when the state could not be saved (it then lives in memory until it can).
+
+**d. Server settings** (all optional; with none set nothing changes)
+
+| Setting | What it does |
+|---|---|
+| `SUPABASE_URL` and `SUPABASE_SECRET_KEY` (or `SUPABASE_PUBLISHABLE_KEY`) | State is stored in Supabase, one row per visitor. Run `deploy/supabase/sisu_sessions.sql` once in the project first. The names Vercel's Supabase integration sets are read too. |
+| `SISU_STORE=file` | Keeps the file store even when the Supabase settings are present. |
+| `SISU_SESSIONS=visitor` or `shared` | Whether each visitor has their own state. Default: `visitor` with Supabase, `shared` with the file. `visitor` with the file store keeps one file per visitor next to the state file. |
+| `SISU_CORS_ORIGINS` | Who may call the API from another address: `*`, or a comma-separated list such as `https://sisu.example.com,http://localhost:5173`. |
+
+**e. Three ways to run it**
+
+| Where | Settings | Notes |
+|---|---|---|
+| Booth laptop | none | One shared state in `.sisu/state.json`. Use the reset button between visitors. |
+| Laptop, many visitors (a tunnel or the venue Wi-Fi) | `SISU_SESSIONS=visitor` | Each visitor gets a file. The model on our GPU is reachable, because the tunnel is on this laptop. |
+| Hosted (Vercel or any Node host) | the Supabase settings | A hosted server cannot use the SSH tunnel. Give it a `VERDA_BASE_URL` it can reach, or run it with `MODEL_PROVIDER=nvidia`. |
+
+Search results and page reads are kept in the server's memory. On a host that starts fresh instances they are
+looked up again, so the first money plan after a quiet spell takes longer (about 19 s against 3 to 10 s).

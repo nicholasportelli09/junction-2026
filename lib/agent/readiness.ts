@@ -100,7 +100,9 @@ function probeStore(): Probe {
   const store = storeInfo();
   const chains = DEMO_CUSTOMERS.every((customer) => auditFor(customer.customerId).chainValid);
   if (!chains) return { ok: false, detail: "The audit log does not verify: an entry was changed or removed. Reset the demo." };
-  return store.persistent ? { ok: true, detail: "Actions and memory are saved to this machine; the audit log verifies." } : { ok: true, detail: "Actions and memory are kept in memory only (they are lost on restart); the audit log verifies." };
+  const where = store.kind === "supabase" ? "in Supabase" : "to this machine";
+  const whose = store.perVisitor ? ", separately for each visitor" : "";
+  return store.persistent ? { ok: true, detail: `Actions and memory are saved ${where}${whose}; the audit log verifies.` } : { ok: true, detail: "Actions and memory are kept in memory only (they are lost on restart); the audit log verifies." };
 }
 
 async function check(): Promise<ReadinessReport> {

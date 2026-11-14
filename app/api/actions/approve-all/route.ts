@@ -2,6 +2,7 @@ import { approveAction } from "@/lib/actions";
 import { impactOf } from "@/lib/actions/drafts";
 import { TOO_MANY, allowRequest, jsonError, parseCustomerId } from "@/lib/agent/http";
 import type { AgentAction } from "@/lib/types";
+import { withVisitor } from "@/lib/agent/visitor";
 
 export const runtime = "nodejs";
 const MAX_AT_ONCE = 6;
@@ -10,7 +11,7 @@ const MAX_AT_ONCE = 6;
 // confirm: true, and it comes from the Approve button, never from the agent. Each action is approved, simulated
 // and logged on its own, so the audit trail shows every one.
 // Body: { customerId, actionIds: string[], confirm: true }.
-export async function POST(request: Request) {
+export const POST = withVisitor(async function POST(request: Request) {
   if (!allowRequest(request, "actions", 30)) return TOO_MANY();
   const body = ((await request.json().catch(() => null)) ?? {}) as Record<string, unknown>;
   const customerId = parseCustomerId(body.customerId);
@@ -27,4 +28,4 @@ export async function POST(request: Request) {
     else failed.push({ actionId: id, reason: result.reason });
   }
   return Response.json({ approved, failed }, { status: approved.length ? 200 : 409 });
-}
+});

@@ -4,20 +4,21 @@ import { findCustomer } from "@/lib/finance/data";
 import { buildOverview } from "@/lib/finance/overview";
 import { forget, getMemory, remember, setConsent } from "@/lib/memory";
 import type { MemoryKind } from "@/lib/types";
+import { withVisitor } from "@/lib/agent/visitor";
 
 export const runtime = "nodejs";
 
 const KINDS: MemoryKind[] = ["bill_name", "yearly_kwh", "preference", "goal"];
 
-export async function GET(request: Request) {
+export const GET = withVisitor(async function GET(request: Request) {
   const customerId = parseCustomerId(new URL(request.url).searchParams.get("customerId"));
   if (!customerId || !findCustomer(customerId)) return jsonError("Choose a customer first.", 400);
   return Response.json(getMemory(customerId));
-}
+});
 
 // Saves one thing the user confirmed in the app, or switches remembering on or off.
 // Body: { customerId, consent } or { customerId, kind, key?, value, billType? }.
-export async function POST(request: Request) {
+export const POST = withVisitor(async function POST(request: Request) {
   if (!allowRequest(request, "memory", 60)) return TOO_MANY();
   const body = ((await request.json().catch(() => null)) ?? {}) as Record<string, unknown>;
   const customerId = parseCustomerId(body.customerId);
@@ -37,13 +38,13 @@ export async function POST(request: Request) {
   // Rule 2 of the orchestration: the moment a bill is confirmed, start looking for offers so they are ready when asked.
   if (kind === "bill_name" && billType) ensureResearch(billType, customer.area);
   return Response.json(getMemory(customerId));
-}
+});
 
 // Forgets one item (itemId) or everything for this customer.
-export async function DELETE(request: Request) {
+export const DELETE = withVisitor(async function DELETE(request: Request) {
   const params = new URL(request.url).searchParams;
   const customerId = parseCustomerId(params.get("customerId"));
   if (!customerId || !findCustomer(customerId)) return jsonError("Choose a customer first.", 400);
   forget(customerId, params.get("itemId"));
   return Response.json(getMemory(customerId));
-}
+});

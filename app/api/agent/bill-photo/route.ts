@@ -7,6 +7,7 @@ import { fact } from "@/lib/finance/facts";
 import { buildOverview } from "@/lib/finance/overview";
 import { billFor, getMemory } from "@/lib/memory";
 import type { BillPhotoResult, Fact } from "@/lib/types";
+import { withVisitor } from "@/lib/agent/visitor";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -14,7 +15,7 @@ export const maxDuration = 30;
 // A photo of the customer's own bill in, the figures printed on it out, read by Nemotron's vision on our own GPU.
 // Nothing is saved here. Show `toConfirm`, and when the user agrees call POST /api/memory { kind: "yearly_kwh", value }.
 // Body: multipart form with `image` (png, jpeg or webp, up to 4 MB) and `customerId`.
-export async function POST(request: Request) {
+export const POST = withVisitor(async function POST(request: Request) {
   if (!allowRequest(request, "bill-photo", 10)) return TOO_MANY();
   const form = await request.formData().catch(() => null);
   const customerId = parseCustomerId(form?.get("customerId"));
@@ -51,4 +52,4 @@ export async function POST(request: Request) {
     toConfirm: seen.length ? `Sisu read: ${seen.join(", ")}. Is that right? Nothing is saved until you confirm.` : "Sisu could not read the key figures. Try a sharper photo, or type your yearly kWh.",
   };
   return Response.json(body);
-}
+});

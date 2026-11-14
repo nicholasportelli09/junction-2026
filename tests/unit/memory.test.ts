@@ -5,6 +5,7 @@ import { buildSystemPrompt } from "@/lib/agent/prompt";
 import { buildOverview } from "@/lib/finance/overview";
 import { billFor, billLabel, forget, getMemory, remember, setConsent, statedYearlyKwh } from "@/lib/memory";
 import { auditFor } from "@/lib/store/audit";
+import { forgetStoredState } from "@/lib/store/state";
 
 const overview = buildOverview(AINO)!;
 
@@ -21,7 +22,7 @@ describe("memory: remembered only when allowed, and only for its own customer", 
     const saved = remember(AINO, { kind: "bill_name", key: "utilities-1", value: "Helen electricity", billType: "electricity", source: "user-confirmed-in-app" });
     assert.ok(saved.ok);
     // Simulate a new process: drop the in-memory copy so the next read comes from disk.
-    (globalThis as unknown as { __sisuState: { state: unknown } }).__sisuState.state = null;
+    forgetStoredState();
     const memory = getMemory(AINO);
     assert.equal(memory.items.length, 1);
     assert.deepEqual(billLabel(overview.recurringBills.find((b) => b.id === "utilities-1")!, memory), { label: "Helen electricity", confirmed: true });
