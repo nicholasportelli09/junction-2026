@@ -139,7 +139,7 @@ describe("HTTP routes: validation, approval and isolation", () => {
 
   it("health reports mock mode, the data boundary and never a key", async () => {
     process.env.EXA_API_KEY = "sk-should-never-appear";
-    const response = await health();
+    const response = await health(new Request("http://localhost/api/health"));
     const text = JSON.stringify(await json<HealthReport>(response.clone()));
     const report = await json<HealthReport>(response);
     assert.deepEqual([report.ok, report.mock, report.model.provider], [true, true, "mock"]);

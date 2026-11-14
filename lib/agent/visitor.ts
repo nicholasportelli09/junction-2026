@@ -52,7 +52,7 @@ type Handler<Rest extends unknown[]> = (request: Request, ...rest: Rest) => Resp
 
 // The route runs as the visitor: the state is fetched first, and stored before the answer leaves.
 // A stream answers before its work is done, so eventStream (lib/agent/http.ts) does the storing when it ends.
-export function withVisitor<Rest extends unknown[]>(handler: Handler<Rest>): (request?: Request, ...rest: Rest) => Promise<Response> {
+export function withVisitor<Rest extends unknown[]>(handler: Handler<Rest>): (request: Request, ...rest: Rest) => Promise<Response> {
   return async (request, ...rest) => {
     const visitor = visitorOf(request);
     await openSession(visitor.sessionId);

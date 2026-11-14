@@ -191,6 +191,17 @@ describe("a property watch starts only with the user's approval", () => {
     assert.ok(!buildWatchDraft(AINO, { city: "helsinki", budgetEur: 900, minRooms: null, search: searchOf([flat()]), preparedBy: "sisu-agent" }).ok);
   });
 
+  it("a pending check cannot reactivate a watch stopped while it was awaiting I/O", async () => {
+    const watch = (await startWatch(AINO, approve(prepareWatch())))!;
+    const pending = checkWatches(AINO);
+    await stopWatch(AINO, watch.id);
+    const result = await pending;
+    assert.equal(listWatches(AINO)[0].status, "stopped");
+    assert.deepEqual(result.notifications, []);
+    assert.deepEqual(listNotifications(AINO), []);
+    assert.equal(auditFor(AINO).events.at(-1)?.type, "watch_stopped");
+  });
+
   it("a simulated price drop produces one notification, marked as simulated, with a receipt for every number", async () => {
     const watch = (await startWatch(AINO, approve(prepareWatch())))!;
     const result = simulatePriceDrop(AINO, watch.id);

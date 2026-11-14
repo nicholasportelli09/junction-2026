@@ -218,8 +218,10 @@ export function runScenarioTool(args: Record<string, unknown>, ctx: ToolContext)
   if (typeof args.category === "string" && args.categoryCutPct !== undefined && !cutCategory) return failure("finance", `There is no spending in ${args.category} in the last ${ctx.overview.windowMonths} months, or the percentage is not between 1 and 100.`);
   const fromCategory = cutCategory ? round2((cutCategory.monthly * cutPct) / 100) : 0;
   const freed = cutCategory ? fromCategory : Number(args.freedPerMonthEur ?? args.billSavingPerMonth ?? 0);
-  const input = cleanInput({ billSavingPerMonth: Number.isFinite(freed) ? freed : 0, everydayCutPct: Number(args.everydayCutPct ?? 0) || 0, years: Number(args.years) || (cutCategory ? DEFAULT_CUT_YEARS : NaN), oneOffEur: typeof args.oneOffEur === "number" ? args.oneOffEur : 0 });
-  if (typeof input === "string") return failure("finance", input);
+  const cleaned = cleanInput({ billSavingPerMonth: Number.isFinite(freed) ? freed : 0, everydayCutPct: Number(args.everydayCutPct ?? 0) || 0, years: Number(args.years) || (cutCategory ? DEFAULT_CUT_YEARS : NaN), oneOffEur: typeof args.oneOffEur === "number" ? args.oneOffEur : 0 });
+  if (typeof cleaned === "string") return failure("finance", cleaned);
+  // The UI bill-saving cap must not truncate a cut computed from actual category spending.
+  const input = cutCategory ? { ...cleaned, billSavingPerMonth: fromCategory } : cleaned;
   const result = runScenario(ctx.overview, input);
   const branches = result.branches.map((b) => ({ future: b.label, endTotalEur: b.endTotal, lowEur: b.endLow, highEur: b.endHigh, monthsOfMustPayCostsCoveredAfterYear1: b.runwayMonthsAtYear1 }));
   const end = (id: string) => result.branches.find((b) => b.id === id)?.endTotal ?? 0;

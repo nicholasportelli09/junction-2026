@@ -51,7 +51,8 @@ async function probeModel(endpoint: ModelEndpoint): Promise<Probe> {
   });
   if (!response.ok) return { ok: false, detail: `The model server answered ${response.status}.` };
   const body = (await response.json()) as { choices?: { message?: { content?: string | null } }[]; model?: string };
-  const wrote = typeof body.choices?.[0]?.message?.content === "string";
+  const content = body.choices?.[0]?.message?.content;
+  const wrote = typeof content === "string" && content.trim().length > 0;
   return wrote ? { ok: true, detail: `${endpoint.name} wrote a reply.` } : { ok: false, detail: "The model server answered without a reply." };
 }
 
@@ -131,7 +132,7 @@ async function check(): Promise<ReadinessReport> {
   const mainSponsor = config.provider === "verda" ? "NVIDIA Nemotron on Verda" : (SPONSOR[config.provider] ?? config.provider);
 
   const checks: ReadinessCheck[] = [
-    { id: "model", sponsor: mainSponsor, role: "Reasoning, tool choice and wording", status: status(model), latencyMs: model.latencyMs, detail: model.detail, standIn: config.fallbackModel ? `${SPONSOR[config.fallbackModel.provider] ?? config.fallbackModel.provider} hosted copy of the same model takes over by itself` : null, blocksDemo: !model.ok && !backupOk },
+    { id: "model", sponsor: mainSponsor, role: "Reasoning, tool choice and wording", status: status(model), latencyMs: model.latencyMs, detail: model.detail, standIn: config.fallbackModel ? `${SPONSOR[config.fallbackModel.provider] ?? config.fallbackModel.provider} (${config.fallbackModel.name}) takes over automatically; customer aggregates are sent to that provider` : null, blocksDemo: !model.ok && !backupOk },
     ...(backup && config.fallbackModel ? [{ id: "model-backup" as const, sponsor: SPONSOR[config.fallbackModel.provider] ?? config.fallbackModel.provider, role: "Backup for the model, used only if our GPU fails or stalls", status: status(backup), latencyMs: backup.latencyMs, detail: backup.detail, standIn: null, blocksDemo: false }] : []),
     { id: "exa", sponsor: "Exa", role: "Live search, research across sources, second page reader", status: status(exa), latencyMs: exa.latencyMs, detail: exa.detail, standIn: "Offer pages Sisu already knows are read directly; open web questions go unanswered", blocksDemo: !exa.ok && !contextDev.ok },
     { id: "context-dev", sponsor: "Context.dev", role: "Reads each offer page into typed prices", status: status(contextDev), latencyMs: contextDev.latencyMs, detail: contextDev.detail, standIn: "Exa reads the page into the same shape", blocksDemo: !contextDev.ok && !exa.ok },

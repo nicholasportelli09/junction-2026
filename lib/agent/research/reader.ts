@@ -14,6 +14,8 @@ export type PageRead = PageExtraction & { reader: PageReader };
 const PAGE_REUSE_MS = 10 * 60_000;
 const recent: Map<string, { at: number; read: PageRead }> = ((globalThis as unknown as { __sisuPageReads?: Map<string, { at: number; read: PageRead }> }).__sisuPageReads ??= new Map());
 
+const pending = new Map<string, Promise<PageRead>>();
+
 // For tests: start with no remembered pages.
 export const forgetRecentPages = (): void => recent.clear();
 
@@ -28,8 +30,19 @@ async function readWithExa(url: string, billType: BillType): Promise<PageRead> {
 export async function readOffers(url: string, billType: BillType): Promise<PageRead> {
   const key = `${billType}:${url}`;
   const kept = recent.get(key);
-  if (kept && Date.now() - kept.at < PAGE_REUSE_MS) return { ...kept.read, cacheAgeMs: (kept.read.cacheAgeMs ?? 0) + (Date.now() - kept.at), tookMs: 0 };
+  if (kept && Date.now() - kept.at < PAGE_REUSE_MS) return { ...kept.read, cacheAgeMs: kept.read.cacheAgeMs === null ? null : kept.read.cacheAgeMs + (Date.now() - kept.at), tookMs: 0 };
 
+  const running = pending.get(key);
+  if (running) return running;
+  const task = fetchOffers(url, billType).then((read) => {
+    recent.set(key, { at: Date.now(), read });
+    return read;
+  }).finally(() => pending.delete(key));
+  pending.set(key, task);
+  return task;
+}
+
+async function fetchOffers(url: string, billType: BillType): Promise<PageRead> {
   let read: PageRead;
   try {
     read = { ...(await extractOffers(url, billType)), reader: "context.dev" };
@@ -41,6 +54,5 @@ export async function readOffers(url: string, billType: BillType): Promise<PageR
       throw new Error(`${(first as Error).message} Exa could not read it either (${(second as Error).message})`);
     }
   }
-  recent.set(key, { at: Date.now(), read });
   return read;
 }

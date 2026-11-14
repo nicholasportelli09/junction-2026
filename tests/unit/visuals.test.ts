@@ -63,6 +63,20 @@ describe("charts", () => {
     assert.equal(ofType(events, "visual")[0]?.visual.kind, "futures_lines");
   });
 
+  it("a category cut above 500 euros agrees with its receipts and futures", async () => {
+    freshState();
+    const customerId = "CUST04414";
+    const category = categoryAverages(buildOverview(customerId)!).find((entry) => entry.category === "Entertainment")!;
+    assert.ok(category.monthly > 500);
+    const { script } = scriptedModel([[call("run_scenario", { category: category.category, categoryCutPct: 100, years: 1 })], "Here is the scenario."]);
+    setMockScript(script);
+    const events = await collect(runTurn({ customerId, text: "What if I stop entertainment spending for a year?", mode: "text" }));
+    const facts = ofType(events, "grounding")[0].facts;
+    assert.equal(facts.find((f) => f.id === "scenario:freed")?.value, category.monthly);
+    assert.equal(facts.find((f) => f.id === "scenario:category-freed")?.value, category.monthly);
+    assert.ok(Math.abs((facts.find((f) => f.id === "scenario:gain")?.value ?? 0) - category.monthly * 12) < 0.02);
+  });
+
   it("the three-baskets lesson keeps its answer back, and carries the customer's own baskets for the reveal", async () => {
     freshState();
     const { script } = scriptedModel([[call("explain_concept", { concept: "three-baskets" })], "What share do you think goes on everyday choices?"]);

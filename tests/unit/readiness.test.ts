@@ -135,3 +135,30 @@ describe("demo readiness", () => {
     assert.equal(((await response.json()) as ReadinessReport).ready, false);
   });
 });
+
+for (const content of ["", "   "]) {
+  it(`blank model output ${JSON.stringify(content)} cannot pass readiness on either provider`, async () => {
+    freshState();
+    useLiveEnv();
+    restoreFetch = services();
+    const normal = globalThis.fetch;
+    globalThis.fetch = (async (input, init) => String(input).includes("/chat/completions")
+      ? reply({ choices: [{ message: { content } }] }) : normal(input, init)) as typeof fetch;
+    const report = await readiness({ fresh: true });
+    assert.equal(report.ready, false);
+    assert.equal(byId(report, "model")?.status, "down");
+    assert.equal(byId(report, "model-backup")?.status, "down");
+  });
+}
+
+it("Gemini fallback is named accurately and discloses aggregate transfer", async () => {
+  freshState();
+  useLiveEnv({ MODEL_FALLBACK: "gemini", GEMINI_BASE_URL: "http://backup.test/v1", GEMINI_MODEL: "gemini-test" });
+  restoreFetch = services(["model"]);
+  const report = await readiness({ fresh: true });
+  assert.equal(report.ready, true);
+  const standIn = byId(report, "model")?.standIn ?? "";
+  assert.match(standIn, /Google \(gemini-test\)/);
+  assert.match(standIn, /aggregates are sent to that provider/);
+  assert.doesNotMatch(standIn, /same model/);
+});

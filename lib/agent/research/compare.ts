@@ -26,6 +26,8 @@ function isSpot(offer: RawOffer): boolean {
 // Can this offer's price be compared fairly? A spot contract's listed price is only the margin on top
 // of a market price that changes hourly, so it cannot.
 function isComparable(offer: RawOffer, billType: BillType): boolean {
+  if (offer.setupFeeEur !== null && (!Number.isFinite(offer.setupFeeEur) || offer.setupFeeEur < 0)) return false;
+  if (offer.monthlyPriceEur === null || !Number.isFinite(offer.monthlyPriceEur) || !within(offer.monthlyPriceEur, PLAUSIBLE_MONTHLY_EUR)) return false;
   if (billType === "electricity") {
     return !isSpot(offer) && offer.energyPriceCentsPerKwh !== null && within(offer.energyPriceCentsPerKwh, PLAUSIBLE_CENTS_PER_KWH);
   }
@@ -35,7 +37,7 @@ function isComparable(offer: RawOffer, billType: BillType): boolean {
 function monthlyCost(offer: RawOffer, billType: BillType, yearlyKwh: number): number | null {
   if (!isComparable(offer, billType)) return null;
   if (billType === "electricity") {
-    return round2((yearlyKwh / 12) * ((offer.energyPriceCentsPerKwh as number) / 100) + (offer.monthlyPriceEur ?? 0));
+    return round2((yearlyKwh / 12) * ((offer.energyPriceCentsPerKwh as number) / 100) + (offer.monthlyPriceEur ?? 0) + (offer.setupFeeEur ?? 0) / 12);
   }
   return round2((offer.monthlyPriceEur as number) + (offer.setupFeeEur ?? 0) / 12);
 }
@@ -81,6 +83,7 @@ function estimateUsage(offers: RawOffer[], baselineMonthlyEur: number | null, st
 
 function assumptionsFor(billType: BillType, baseline: number | null, usage: Usage | null, energyPart: { amount: number; capped: boolean } | null): string[] {
   const shared = [
+    "Known setup fees are spread over the first 12 months. An unlisted setup fee is assumed zero; confirm it and any exit fees before switching. Offers missing a monthly price or base fee cannot be ranked.",
     "Prices are as stated on the linked pages at the time shown. Check the provider's own page before switching.",
     baseline === null
       ? "No current bill was found for this customer, so savings cannot be calculated."

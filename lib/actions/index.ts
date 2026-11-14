@@ -92,6 +92,10 @@ function decide(customerId: string, actionId: string, approve: boolean, impactOf
   if (action.status === "expired") return { ok: false, status: 410, reason: "This action has expired because prices may have changed. Ask Sisu to prepare it again." };
   if (!isOpen(action)) return { ok: false, status: 409, reason: `This action was already ${action.status === "declined" ? "declined" : "approved"}.` };
 
+  if (approve && action.kind === "switch_contract" && approvedSwitch(customerId, action.billType)) {
+    return { ok: false, status: 409, reason: "This bill already has an approved simulated switch. Decline this competing offer." };
+  }
+
   // Approving carries the action out in the demo bank (lib/actions/bank.ts): money moves between the customer's
   // accounts there, or the bill changes. The bank can refuse, as a real one would when the money is not there.
   // A property watch has nothing to do with the bank: it moves no money, so it is not carried out there.

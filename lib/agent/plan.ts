@@ -191,6 +191,7 @@ async function modelSummary(plan: Pick<MoneyPlan, "totalYearlyEur" | "effortless
 }
 
 export async function* runPlan(customerId: string, options: PlanOptions = {}, signal?: AbortSignal): AsyncGenerator<PlanEvent> {
+  if (signal?.aborted) return;
   const startedAt = Date.now();
   const config = getConfig();
   const customer = findCustomer(customerId);
@@ -231,6 +232,7 @@ export async function* runPlan(customerId: string, options: PlanOptions = {}, si
   for (const pattern of patterns.filter((p) => p.kind === "bill-opportunity" && p.billType && billTypes.includes(p.billType))) yield { type: "finding", id: pattern.id, role: "bill", title: pattern.title, detail: pattern.detail, yearlyEur: null };
 
   // 2. The web: one live search per bill, all at once. Each page is reported as it is found and as it is read.
+  if (signal?.aborted) return;
   const live = options.fresh !== false;
   const searchStartedAt = Date.now();
   const watched = billTypes.map((billType) => {
@@ -268,6 +270,7 @@ export async function* runPlan(customerId: string, options: PlanOptions = {}, si
     yield* reportChecks();
     await sleep(POLL_MS);
   }
+  if (signal?.aborted) return;
   await Promise.race([checking, sleep(Math.max(0, RESEARCH_LIMIT_MS - (Date.now() - searchStartedAt)))]);
   yield* reportChecks();
   for (const search of watched) {
@@ -276,13 +279,16 @@ export async function* runPlan(customerId: string, options: PlanOptions = {}, si
   }
 
   // 3. The sums: each offer against the customer's own bill, in code.
+  if (signal?.aborted) return;
   const context: ToolContext = { customerId, overview, city: customer.area, memory: getMemory(customerId), cashFlow: () => cashFlow, userTexts: [], sisuTexts: [], signal };
   const items: PlanItem[] = [];
   const actions: AgentAction[] = [];
   const searches: PlanSearch[] = [];
   const facts: Fact[] = [];
   for (const search of watched) {
+    if (signal?.aborted) return;
     const outcome = await searchOffers({ billType: search.billType }, context);
+    if (signal?.aborted) return;
     const research = outcome.research ?? null;
     const best = research?.best ?? null;
     const saving = best?.estimatedYearlySavingEur ?? null;
@@ -303,6 +309,7 @@ export async function* runPlan(customerId: string, options: PlanOptions = {}, si
 
   // A habit only saves money if the spending really comes down. The action for it moves that amount to savings the
   // day after payday, so it is set aside before it can be spent. The transfer carries its own warning if it is tight.
+  if (signal?.aborted) return;
   const habitMonthly = Math.floor(sum(habits.map((habit) => (habit.yearlyImpactEur ?? 0) / 12)));
   let habitAction: AgentAction | null = null;
   if (habitMonthly >= 5) {
@@ -337,6 +344,7 @@ export async function* runPlan(customerId: string, options: PlanOptions = {}, si
   const draft = { totalYearlyEur, effortlessYearlyEur, checkPlanYearlyEur, actions, items };
   const summaryStartedAt = Date.now();
   const fromModel = config.isMock ? null : await modelSummary(draft, facts, options.language, signal);
+  if (signal?.aborted) return;
   const summary = fromModel ?? codeSummary(draft);
   yield { type: "summary", text: summary, by: fromModel ? "nemotron" : "code", tookMs: Date.now() - summaryStartedAt };
 
