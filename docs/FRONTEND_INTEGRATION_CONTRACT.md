@@ -513,3 +513,46 @@ Call it for a "start over" button. On the one shared state (the booth laptop) it
 
 Search results and page reads are kept in the server's memory. On a host that starts fresh instances they are
 looked up again, so the first money plan after a quiet spell takes longer (about 19 s against 3 to 10 s).
+
+## 17. Approved actions are carried out in a demo bank (new 14 Nov, late)
+
+Nothing existing changed shape. Until now an approval only wrote "simulated" to the log. Now it does something:
+the action is carried out in Sisu's demo bank, a ledger kept with the visitor's state. A transfer moves the
+balance, a standing transfer becomes a standing order, a switch changes the bill. No real money moves and no
+contract is signed, so everything keeps its "simulation" label.
+
+**a. The approved action says what was done: `action.execution`** (type `ActionExecution`)
+
+It is on the answer of `POST /api/actions/:id/approve` and `POST /api/actions/approve-all`, and on every approved
+action in `GET /api/actions`.
+
+| Field | Use it for |
+|---|---|
+| `steps[]` | A short list to show as it is: `label` and `detail`, in order. For example "Checked the account: €4,183.34 was available." |
+| `transfer` | A one-off transfer: `amountEur`, `to`, `currentBeforeEur`, `currentAfterEur`, `toBeforeEur`, `toAfterEur`. Animate the balance from before to after. |
+| `standingOrder` | A monthly transfer: `monthlyEur`, `to`, `firstRunOn` (the next payday). Nothing moves today. |
+| `contract` | A switch: `provider`, `plan`, `monthlyBeforeEur`, `monthlyAfterEur`, `orderUrl` (the page the offer was read from). |
+| `reference`, `at`, `bank` | The same reference as in `confirmation`; `bank` is `"sisu-demo-bank"`. |
+
+`status` stays `executed_simulated`, `simulated` stays true and `confirmation` is unchanged.
+
+**b. The accounts as they stand: `GET /api/accounts?customerId=`** (type `AccountsView`)
+
+`current.atBankDataEur` (the bank data's balance), `current.movedOutEur` and `current.nowEur`; `savings.movedInEur`
+and `investments.movedInEur`; `standingOrders[]`, `contracts[]` (one per bill), `movements[]` (newest first),
+`facts[]` (a receipt for every number) and `note` (one sentence to show with it). Each visitor has their own.
+Read it after an approval to show the balance now.
+
+**c. The bank can refuse**
+
+Approving a one-off transfer the account can no longer cover answers 409 with a sentence to show, and the action
+stays `awaiting_approval`. In `approve-all` it comes back in `failed[]`.
+
+**d. What changes afterwards**
+
+- "Can I afford it" (`GET /api/coach/affordability` and Sisu's own answers) starts from what is left in the current
+  account. Its first step says so in `basis`.
+- A new transfer is checked against what is left.
+- Sisu knows the balances as they stand and what was done, and says once that it is a demo bank.
+- The overview (`GET /api/customers/:id/overview`), the baskets and the futures stay the bank data: money moved to
+  savings is still the customer's money. Show `GET /api/accounts` beside them rather than changing them.

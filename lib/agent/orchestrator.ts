@@ -3,7 +3,7 @@ import { buildCashFlow } from "@/lib/finance/cashflow";
 import { findCustomer } from "@/lib/finance/data";
 import { buildOverview } from "@/lib/finance/overview";
 import { findPatterns } from "@/lib/finance/patterns";
-import { listActions } from "@/lib/actions";
+import { accountsFor, listActions } from "@/lib/actions";
 import { getMemory } from "@/lib/memory";
 import type { AgentRequest, CashFlow, Citation, Fact, NumberCorrection, SisuEvent, Stage, ToolTrace, TurnTimings } from "@/lib/types";
 import { getConfig } from "./config";
@@ -89,8 +89,10 @@ export async function* runTurn(request: AgentRequest, signal?: AbortSignal, sttM
   const userTexts = forged ? [] : [...history.filter((turn) => turn.role === "user").map((turn) => turn.content), request.text];
   const sisuTexts = forged ? [] : history.filter((turn) => turn.role === "assistant").map((turn) => turn.content);
   const context: ToolContext = { customerId: request.customerId, overview, city: customer.area, memory, cashFlow, userTexts, sisuTexts, signal };
+  // The demo bank's balances after what the customer approved. Their figures are receipts like any other.
+  const accounts = accountsFor(request.customerId);
   const messages: ChatMessage[] = [
-    { role: "system", content: buildSystemPrompt({ overview, city: customer.area, mode: request.mode, memory, investigate, language: request.language, actions: listActions(request.customerId) }) },
+    { role: "system", content: buildSystemPrompt({ overview, city: customer.area, mode: request.mode, memory, investigate, language: request.language, actions: listActions(request.customerId), accounts }) },
     ...history.map((turn) => ({ role: turn.role, content: turn.content })),
     { role: "user", content: forged ? `${request.text}\n\n${FORGED_NOTE}` : request.text },
   ];
@@ -118,7 +120,7 @@ export async function* runTurn(request: AgentRequest, signal?: AbortSignal, sttM
   let researched = false;
 
   // Everything the answer's numbers may be checked against. Tool results are added as they arrive.
-  const summaryFacts = overviewFacts(overview);
+  const summaryFacts = [...overviewFacts(overview), ...(accounts?.facts ?? [])];
   const summaryText = customerSummary(overview, customer.area);
   const sources = (): Sources => ({ facts: [...toolFacts, ...summaryFacts], contextTexts: [summaryText, ...toolContents, ...memory.items.map((item) => item.value)], userTexts });
   const corrections: NumberCorrection[] = [];
@@ -137,7 +139,10 @@ export async function* runTurn(request: AgentRequest, signal?: AbortSignal, sttM
   // that was not taken, announces work instead of doing it, or carries a number with no source trips a guard:
   // it is thrown away and the model redoes the step (see lib/agent/guards.ts).
   const standing = listActions(request.customerId).filter((action) => action.status === "awaiting_approval" || action.status === "executed_simulated");
-  const earlierActions = { switches: standing.some((action) => action.kind === "switch_contract"), transfers: standing.some((action) => action.kind !== "switch_contract") };
+  const kindsOf = (actions: typeof standing) => ({ switches: actions.some((action) => action.kind === "switch_contract"), transfers: actions.some((action) => action.kind !== "switch_contract") });
+  const earlierActions = { ...kindsOf(standing), waiting: kindsOf(standing.filter((action) => action.status === "awaiting_approval")), done: kindsOf(standing.filter((action) => action.status === "executed_simulated")) };
+  // Whether this message asks for something to be set up. If not, "I moved 500 euros" can only be a report of what was done.
+  const askedToAct = asksToMoveMoney(request.text) || /\b(switch|set (it |that |this |one )?up|prepare|arrange|go ahead|do it|move|transfer)\b/i.test(request.text);
   const guard = { trip: null as Trip | null, retriesLeft: MAX_GUARD_RETRIES, accepted: [] as string[], prepared: false, toolsCalled: 0 };
   function* emitSentences(sentences: string[]): Generator<SisuEvent> {
     for (const sentence of sentences) {
@@ -148,7 +153,7 @@ export async function* runTurn(request: AgentRequest, signal?: AbortSignal, sttM
         const { facts, contextTexts } = sources();
         const inThisSentence = numbersIn(spelledToDigits(fixed));
         const unsourced = checkGrounding(`${guard.accepted.join(" ")} ${fixed}`, facts, contextTexts, userTexts).unverified.filter((value) => inThisSentence.includes(value));
-        guard.trip = checkSentence(fixed, { toolsCalledThisTurn: guard.toolsCalled, actionPreparedThisTurn: guard.prepared, earlierActions, unsourced, saidSoFar: guard.accepted.join(" ") });
+        guard.trip = checkSentence(fixed, { toolsCalledThisTurn: guard.toolsCalled, actionPreparedThisTurn: guard.prepared, earlierActions, askedToAct, unsourced, saidSoFar: guard.accepted.join(" ") });
         if (guard.trip) return;
       }
       guard.accepted.push(fixed);

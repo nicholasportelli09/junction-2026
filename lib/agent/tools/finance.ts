@@ -15,6 +15,9 @@ import { billLabel } from "@/lib/memory";
 import type { BasketId, BillType, ConceptId, EvidenceFilter, Fact, Transaction } from "@/lib/types";
 import { CATEGORIES, GROUPINGS, MERCHANT_TYPES } from "./schemas";
 import { type ToolContext, type ToolOutcome, factsForModel, failure, outcome } from "./types";
+import { accountsFor } from "@/lib/actions";
+import { buildCashFlow } from "@/lib/finance/cashflow";
+import { withCurrentAccount } from "@/lib/actions/bank";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_GROUPS = 12;
@@ -182,7 +185,10 @@ export function findPatternsTool(ctx: ToolContext): ToolOutcome {
 }
 
 export function checkAffordabilityTool(args: Record<string, unknown>, ctx: ToolContext): ToolOutcome {
-  const result = checkAffordability(ctx.overview, ctx.cashFlow(), Number(args.amountEur));
+  // After an approved transfer the money is no longer in the current account, so the answer starts from what is left.
+  const accounts = accountsFor(ctx.overview.customerId);
+  const current = accounts ? withCurrentAccount(ctx.overview, accounts) : ctx.overview;
+  const result = checkAffordability(current, current === ctx.overview ? ctx.cashFlow() : buildCashFlow(current), Number(args.amountEur));
   if (typeof result === "string") return failure("finance", result);
   const what = typeof args.what === "string" ? args.what.slice(0, 60) : "this cost";
   const verdictText = { comfortable: "affordable now with a buffer left", tight: "possible, but it leaves less than a month of must-pay costs before payday", "not-yet": "not affordable now without going below zero before payday" }[result.verdict];

@@ -226,7 +226,7 @@ describe("transfers: once or monthly, to savings or investments, with honest war
     assert.match(waiting, /ACTIONS SO FAR \(newest first\):\n- Move €500 to savings now: set up, waiting for the customer's tap on Approve\./);
     const approved = approveAction(SANNA, saved.action.id, impactOf);
     assert.ok(approved.ok);
-    assert.match(buildSystemPrompt({ overview: sanna, city: "Helsinki", mode: "text", memory: getMemory(SANNA), actions: [approved.action] }), /approved by the customer and carried out \(simulation\)/);
+    assert.match(buildSystemPrompt({ overview: sanna, city: "Helsinki", mode: "text", memory: getMemory(SANNA), actions: [approved.action] }), /approved by the customer and carried out in the demo bank \(a simulation: no real money moved\)/);
     assert.match(buildSystemPrompt({ overview: sanna, city: "Helsinki", mode: "text", memory: getMemory(SANNA) }), /ACTIONS SO FAR: none\./);
   });
 });

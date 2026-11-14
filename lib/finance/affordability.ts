@@ -20,7 +20,7 @@ export function checkAffordability(overview: Overview, cashFlow: CashFlow, amoun
   const monthsToSaveUp = verdict === "not-yet" && monthlySurplus > 0 ? Math.ceil(shortfall / monthlySurplus) : null;
 
   const steps: CalcStep[] = [
-    { label: "Balance today", amount: overview.balance, basis: `account balance on ${overview.dataTimestamp}` },
+    { label: "Balance today", amount: overview.balance, basis: overview.balanceBasis ?? `account balance on ${overview.dataTimestamp}` },
     { label: "This cost", amount: -amount, basis: "the amount asked about" },
     ...cashFlow.steps.slice(1, 3),
     { label: "Expected balance just before payday", amount: lowPoint, basis: cashFlow.nextPayday ? `next payday expected on ${cashFlow.nextPayday}` : "no payday found in the data" },
