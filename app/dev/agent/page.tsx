@@ -5,6 +5,7 @@
 import { useEffect, useState } from "react";
 import { fetchDemoCustomers } from "@/lib/api";
 import { type VoiceOptions, fetchVoiceOptions, prefetchOffers } from "@/lib/agent/client";
+import { WatchPanel } from "./WatchPanel";
 import { useSisu } from "@/lib/agent/useSisu";
 import type { DemoCustomer } from "@/lib/types";
 import { MessageCard } from "./MessageCard";
@@ -137,6 +138,8 @@ export default function AgentBench() {
           ))}
         </ul>
       )}
+
+      <WatchPanel watches={sisu.watches} notifications={sisu.notifications} onCheck={sisu.checkWatches} onStop={sisu.stopWatch} onSimulate={sisu.simulatePriceDrop} />
 
       <ol className="space-y-3">
         {sisu.messages.map((message) => <li key={message.id}><MessageCard message={message} onApprove={(id) => void sisu.approve(id)} onDecline={(id) => void sisu.decline(id)} /></li>)}

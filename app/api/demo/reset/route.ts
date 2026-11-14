@@ -3,6 +3,7 @@ import { TOO_MANY, allowRequest, jsonError } from "@/lib/agent/http";
 import { DEMO_CUSTOMERS } from "@/lib/finance/data";
 import { withVisitor } from "@/lib/agent/visitor";
 import { SHARED, currentSession } from "@/lib/store/session";
+import { stopAllWatches } from "@/lib/watch";
 
 export const runtime = "nodejs";
 
@@ -17,6 +18,8 @@ export const POST = withVisitor(async function POST(request: Request) {
   const deployed = process.env.NODE_ENV === "production";
   const ownStateOnly = currentSession() !== SHARED;
   if (deployed && !ownStateOnly && (!token || request.headers.get("x-sisu-reset-token") !== token)) return jsonError("Resetting the demo is switched off on this site.", 403);
-  const cleared = resetCustomers(DEMO_CUSTOMERS.map((customer) => customer.customerId));
+  const customerIds = DEMO_CUSTOMERS.map((customer) => customer.customerId);
+  await stopAllWatches(customerIds); // so no Context.dev monitor outlives the state that knew about it
+  const cleared = resetCustomers(customerIds);
   return Response.json({ ok: true, cleared });
 });

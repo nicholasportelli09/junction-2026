@@ -58,6 +58,8 @@ That is the whole integration: one hook, and a card for each thing it hands you.
 | `investigate()` | Sisu works through a whole case on its own (section 4) | **new** |
 | `approve(actionId)` | The Approve button. Returns the action with `impact` filled in | **new** |
 | `decline(actionId)` | The Decline button | **new** |
+| `watches`, `notifications` | Property watches this visitor approved, and the flats they found (last section of this document) | **new** |
+| `checkWatches(runNow?)`, `stopWatch(id)`, `simulatePriceDrop(id)` | Check now, stop, and the demo's made-up price drop | **new** |
 | `confirmBill(billId, name, billType?)` | The user confirms or corrects a bill's name. Saves it and starts offer research | **new** |
 | `actions` | Every action for this customer, newest first | **new** |
 | `memory` | `{ consent, items }`: what Sisu remembers about this customer | **new** |
@@ -556,3 +558,33 @@ stays `awaiting_approval`. In `approve-all` it comes back in `failed[]`.
 - Sisu knows the balances as they stand and what was done, and says once that it is a demo bank.
 - The overview (`GET /api/customers/:id/overview`), the baskets and the futures stay the bank data: money moved to
   savings is still the customer's money. Show `GET /api/accounts` beside them rather than changing them.
+
+## Property watch (added 14 Nov, evening)
+
+Nothing to wire for the conversation itself. The backend change is inside the agent, so every screen that asks Sisu
+through `useSisu` (typed, voice, or `POST /api/agent/query`) gets it:
+
+- "Find me a three-room flat in Helsinki under 700 euros a month" runs a live listing search (a step with the label
+  "Searching rental listings in Helsinki with Exa and reading them with Context.dev").
+- If nothing fits, the answer asks "Shall I watch prices and tell you when one fits?" and the message carries an
+  `action` of kind `property_watch`. It is an ordinary action card: `approve(action.id)` starts the watch.
+- This action has `simulated: false`. Label its button "Approve (starts the watch)", not "simulation": approving it
+  creates real Context.dev monitors. No money moves and `execution` stays empty.
+
+Two things to draw, both already on the hook:
+
+| From `useSisu` | Draw |
+|---|---|
+| `watches` | One line per watch: city, budget, `status`, and `mode` (`monitor` = Context.dev watches the pages; `reread` = Sisu re-reads them itself) |
+| `notifications` | One card each: `title`, `summary`, a link to `listing.url`. When `simulated` is true, show "simulated for the demo" |
+
+The hook checks an active watch once a minute while it is on screen, so `notifications` fills in on its own. Buttons:
+`checkWatches(true)` (ask Context.dev to check now), `stopWatch(watch.id)`, and for the demo
+`simulatePriceDrop(watch.id)`. A working card to copy: `app/dev/agent/WatchPanel.tsx`.
+
+Without the hook: `GET /api/watch?customerId=` returns `{ watches, notifications }`; `POST /api/watch/check` with
+`{ customerId, runNow? }` polls; `POST /api/watch/:id/stop` and `POST /api/watch/:id/simulate-drop` take
+`{ customerId }`. Send the visitor's `X-Sisu-Session` header as for every other call: a watch belongs to one visitor.
+
+The Swift client needs no change to keep working (`ActionKind` is an open enum); it shows a watch as an action
+with a kind it does not know until a case is added.

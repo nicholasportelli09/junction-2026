@@ -9,7 +9,7 @@ import { ACTION_KINDS, BILL_TYPES, MEMORY_KINDS } from "./schemas";
 import { type ToolContext, type ToolOutcome, factsForModel, failure, outcome } from "./types";
 import { looksLikeInstructions } from "./untrusted";
 
-const digitsOf = (text: string): number[] => [...text.replace(/(\d)[ ,](\d{3})\b/g, "$1$2").matchAll(/\d+(?:\.\d+)?/g)].map((match) => Number(match[0]));
+export const digitsOf = (text: string): number[] => [...text.replace(/(\d)[ ,](\d{3})\b/g, "$1$2").matchAll(/\d+(?:\.\d+)?/g)].map((match) => Number(match[0]));
 const wordsOf = (text: string): string[] => text.toLowerCase().match(/[a-zà-öø-ÿ]{4,}/g) ?? [];
 
 // Has this amount come up in the conversation, said by the customer or by Sisu in an answer that passed the number

@@ -1,6 +1,8 @@
 // Prepared actions and their approval. The rule this file enforces: nothing is carried out without an explicit
 // approval from the user, every step is written to the audit log, and an approved action is carried out only in
 // the demo bank (lib/actions/bank.ts): no real money moves and no real contract is signed.
+// One kind does something real: a property watch. Approving it starts Context.dev monitors (lib/watch), which the
+// approve routes do straight after the approval is stored here; it moves no money and contacts no one.
 // The agent can PREPARE an action. Only the approve endpoint, called from a button press, can approve one.
 import { buildCashFlow } from "@/lib/finance/cashflow";
 import { findCustomer } from "@/lib/finance/data";
@@ -19,7 +21,7 @@ export type ActionResult = { ok: true; action: AgentAction } | { ok: false; stat
 
 const isOpen = (action: AgentAction): boolean => action.status === "awaiting_approval";
 const sameAction = (a: AgentAction, draft: ActionDraft): boolean =>
-  a.kind === draft.kind && a.billType === draft.billType && a.offer?.provider === draft.offer?.provider && a.offer?.plan === draft.offer?.plan && a.monthlyAmountEur === draft.monthlyAmountEur && a.destination === draft.destination;
+  a.kind === draft.kind && a.billType === draft.billType && a.offer?.provider === draft.offer?.provider && a.offer?.plan === draft.offer?.plan && a.monthlyAmountEur === draft.monthlyAmountEur && a.destination === draft.destination && a.watch?.city === draft.watch?.city && (a.watch?.minRooms ?? null) === (draft.watch?.minRooms ?? null);
 
 // Marks unanswered actions that have passed their time as expired, and logs it.
 function expireOld(now: Date): void {
@@ -60,7 +62,7 @@ export function saveDraft(customerId: string, draft: ActionDraft, now: Date = ne
     id: crypto.randomUUID(),
     customerId,
     status: "awaiting_approval",
-    simulated: true,
+    simulated: draft.kind !== "property_watch",
     createdAt: now.toISOString(),
     expiresAt: new Date(now.getTime() + TTL_MS).toISOString(),
     decidedAt: null,
@@ -96,15 +98,18 @@ function decide(customerId: string, actionId: string, approve: boolean, impactOf
 
   // Approving carries the action out in the demo bank (lib/actions/bank.ts): money moves between the customer's
   // accounts there, or the bill changes. The bank can refuse, as a real one would when the money is not there.
+  // A property watch has nothing to do with the bank: it moves no money, so it is not carried out there.
+  const isWatch = action.kind === "property_watch";
+  const reference = action.id.slice(0, 8).toUpperCase();
   let execution: ActionExecution | null = null;
-  const overview = approve ? buildOverview(customerId) : null;
+  const overview = approve && !isWatch ? buildOverview(customerId) : null;
   if (overview) {
     const done = carryOut(action, overview, readState().actions, buildCashFlow(overview).nextPayday, now);
     if (!done.ok) return { ok: false, status: done.status, reason: done.reason };
     execution = done.execution;
   }
   const decided: AgentAction = approve
-    ? { ...action, status: "executed_simulated", decidedAt: now.toISOString(), impact: impactOf(action), confirmation: `Done (simulation). Reference SIM-${action.id.slice(0, 8).toUpperCase()}.`, execution }
+    ? { ...action, status: "executed_simulated", decidedAt: now.toISOString(), impact: impactOf(action), confirmation: isWatch ? `Approved. The watch is starting. Reference WATCH-${reference}.` : `Done (simulation). Reference SIM-${reference}.`, execution }
     : { ...action, status: "declined", decidedAt: now.toISOString() };
   const carried = execution ? `Carried out in the demo bank, no real money moved. ${execution.steps.map((step) => step.detail).join(" ")}` : `Simulated only, nothing was sent or changed: ${action.title}`;
 
@@ -112,6 +117,7 @@ function decide(customerId: string, actionId: string, approve: boolean, impactOf
     const stored = { ...state, actions: state.actions.map((a) => (a.id === action.id ? decided : a)) };
     if (!approve) return withAudit(stored, { customerId, type: "action_declined", actor: "user", actionId, detail: `Declined: ${action.title}` }, now);
     const approved = withAudit(stored, { customerId, type: "action_approved", actor: "user", actionId, detail: `Approved by the user: ${action.title}` }, now);
+    if (isWatch) return approved; // not a simulation: lib/watch writes "watch_started" once the monitors exist
     return withAudit(approved, { customerId, type: "action_executed_simulated", actor: "system", actionId, detail: carried }, now);
   });
   return { ok: true, action: decided };
@@ -154,6 +160,8 @@ export function resetCustomers(customerIds: string[], now: Date = new Date()): {
       ...current,
       actions: current.actions.filter((action) => !customerIds.includes(action.customerId)),
       memory: Object.fromEntries(Object.entries(current.memory).filter(([id]) => !customerIds.includes(id))),
+      watches: (current.watches ?? []).filter((watch) => !customerIds.includes(watch.customerId)),
+      notifications: (current.notifications ?? []).filter((note) => !customerIds.includes(note.customerId)),
       audit: [], // a new chain starts here; the reset itself is its first entry
     };
     return withAudit(cleared, { customerId: "ALL-DEMO", type: "demo_reset", actor: "system", detail: `Demo reset: ${actions} actions and ${memoryItems} remembered items cleared for ${customerIds.length} customers.` }, now);

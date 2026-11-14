@@ -12,7 +12,7 @@
 // State is kept per session (lib/store/session.ts). Without a session it is the one shared state, as before.
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import type { AgentAction, AuditEvent, CustomerMemory } from "@/lib/types";
+import type { AgentAction, AuditEvent, CustomerMemory, PropertyWatch, WatchNotification } from "@/lib/types";
 import { SHARED, currentSession } from "./session";
 import { type RemoteStore, loadRemote, saveRemote } from "./supabase";
 
@@ -21,6 +21,8 @@ export type SisuState = {
   memory: Record<string, CustomerMemory>;
   actions: AgentAction[];
   audit: AuditEvent[];
+  watches?: PropertyWatch[]; // property watches this visitor approved (lib/watch)
+  notifications?: WatchNotification[]; // what those watches found
 };
 
 const EMPTY: SisuState = { version: 1, memory: {}, actions: [], audit: [] };

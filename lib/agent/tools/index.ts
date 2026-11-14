@@ -3,6 +3,7 @@ import type { ToolCall } from "../model";
 import { prepareAction, rememberTool } from "./act";
 import { calculate } from "./calc";
 import { showChart } from "./chart";
+import { searchFlats } from "./flats";
 import { checkAffordabilityTool, explainConcept, findPatternsTool, getCashFlow, getMortgage, getSpending, listBills, runScenarioTool } from "./finance";
 import { type ToolContext, type ToolOutcome, failure, parseArgs } from "./types";
 import { searchOffers, webSearch } from "./web";
@@ -31,6 +32,8 @@ export async function executeTool(call: ToolCall, ctx: ToolContext): Promise<Too
       return getMortgage(ctx);
     case "search_offers":
       return searchOffers(args, ctx);
+    case "search_flats":
+      return searchFlats(args, ctx);
     case "web_search":
       return webSearch(args, ctx);
     case "calculate":
