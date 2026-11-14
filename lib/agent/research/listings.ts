@@ -153,8 +153,10 @@ export async function searchListings(city: string, signal?: AbortSignal): Promis
   const query = listingQuery(city);
   const results = await exaSearch(query, { numResults: 8, highlights: false, signal, includeDomains: LISTING_SITES });
   const seenHosts = new Set<string>();
-  // One page per site, so three reads cover three different sources.
-  const found = results.filter((result) => {
+  // A site's first page of results before its later ones (new flats appear there), then one page per site, so
+  // three reads cover three different sources.
+  const deepPage = (url: string): number => Number(/[?&]page=(?!1(?:\D|$))\d/.test(url));
+  const found = [...results].sort((a, b) => deepPage(a.url) - deepPage(b.url)).filter((result) => {
     const host = hostOf(result.url);
     return !!host && !seenHosts.has(host) && !!seenHosts.add(host);
   });
