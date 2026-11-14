@@ -1,7 +1,8 @@
 // Circuit breaker for the main model. Without it, every model step during an outage waits the full stall limit
 // before the backup answers (measured: 4.1 s to the first sentence of a two-step turn). With it, the first failure
-// "opens" the breaker and later steps go straight to the backup. A cheap background probe checks whether the main
-// model is back, so no customer's question is ever used as the test.
+// "opens" the breaker and later steps ask the backup first. A cheap background probe checks whether the main
+// model is back, so no customer's question waits on it as the test. If the backup is silent too, the model
+// client asks the main model again alongside it (see firstToStart in model.ts).
 import type { ModelEndpoint } from "./config";
 
 const COOLDOWN_MS = 5_000; // how long to leave the main model alone before probing it. Short, so a false alarm under load costs little.

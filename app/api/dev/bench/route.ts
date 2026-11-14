@@ -11,6 +11,7 @@ import { buildOverview } from "@/lib/finance/overview";
 import { findPatterns } from "@/lib/finance/patterns";
 import { runScenario } from "@/lib/finance/scenario";
 import { getMemory } from "@/lib/memory";
+import { withVisitor } from "@/lib/agent/visitor";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -41,7 +42,7 @@ function timeSync(run: () => unknown, times = 300): number {
   return Math.round(((performance.now() - started) / times) * 1000) / 1000;
 }
 
-export async function GET(request: Request) {
+export const GET = withVisitor(async function GET(request: Request) {
   if (process.env.NODE_ENV === "production" && process.env.SISU_BENCH !== "1") return jsonError("The benchmark route is switched off here.", 404);
   const params = new URL(request.url).searchParams;
   const part = params.get("part") ?? "finance";
@@ -131,4 +132,4 @@ export async function GET(request: Request) {
     return Response.json({ part, pages });
   }
   return jsonError("part must be finance, model, search or extract.", 400);
-}
+});

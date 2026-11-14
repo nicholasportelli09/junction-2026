@@ -2,13 +2,14 @@ import { saveDraft } from "@/lib/actions";
 import { buildSwitchDraft, buildTransferDraft } from "@/lib/actions/drafts";
 import { TOO_MANY, allowRequest, jsonError, parseBillType, parseCustomerId } from "@/lib/agent/http";
 import { findCustomer } from "@/lib/finance/data";
+import { withVisitor } from "@/lib/agent/visitor";
 
 export const runtime = "nodejs";
 
 // Prepares an action from a button (for example "Prepare the switch" on an offer card). It is only a draft:
 // nothing happens until POST /api/actions/:id/approve.
 // Body: { customerId, kind, billType?, provider?, amountEur?, destination? }. (monthlyAmountEur still works for standing_transfer.)
-export async function POST(request: Request) {
+export const POST = withVisitor(async function POST(request: Request) {
   if (!allowRequest(request, "actions", 30)) return TOO_MANY();
   const body = ((await request.json().catch(() => null)) ?? {}) as Record<string, unknown>;
   const customerId = parseCustomerId(body.customerId);
@@ -30,4 +31,4 @@ export async function POST(request: Request) {
   if (!saved.ok) return jsonError(saved.reason, saved.status);
   // 201 for a new action; 200 when the customer had already approved a switch for this bill (it is handed back).
   return Response.json({ action: saved.action }, { status: saved.action.status === "executed_simulated" ? 200 : 201 });
-}
+});
