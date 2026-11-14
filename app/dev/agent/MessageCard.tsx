@@ -34,14 +34,14 @@ function ActionCard({ action, onApprove, onDecline }: { action: AgentAction; onA
   const waiting = action.status === "awaiting_approval";
   return (
     <div className="space-y-2 rounded-xl border border-amber/60 bg-amber/10 p-3 text-sm">
-      <p className="text-xs font-semibold uppercase tracking-wide text-[#8a5f08]">{ACTION_STATE[action.status]}</p>
+      <p className="text-xs font-semibold uppercase tracking-wide text-[#8a5f08]">{!action.simulated && action.status === "executed_simulated" ? "Approved · the watch is running (real monitors, no money moved)" : ACTION_STATE[action.status]}</p>
       <p className="font-semibold">{action.title}</p>
       <p className="text-muted">{action.summary}</p>
       {action.warning && <p className="rounded-lg bg-coral/10 p-2 text-coral">{action.warning}</p>}
       <ol className="list-decimal space-y-1 pl-5 text-xs text-muted">{action.checklist.map((step) => <li key={step}>{step}</li>)}</ol>
       {waiting && (
         <div className="flex gap-2">
-          <button type="button" onClick={() => onApprove?.(action.id)} className="min-h-11 flex-1 rounded-xl bg-green px-3 font-semibold text-white">Approve (simulation)</button>
+          <button type="button" onClick={() => onApprove?.(action.id)} className="min-h-11 flex-1 rounded-xl bg-green px-3 font-semibold text-white">{action.simulated ? "Approve (simulation)" : "Approve (starts the watch)"}</button>
           <button type="button" onClick={() => onDecline?.(action.id)} className="min-h-11 flex-1 rounded-xl border border-line bg-card px-3 font-semibold">Decline</button>
         </div>
       )}

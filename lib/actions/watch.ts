@@ -37,7 +37,7 @@ export function buildWatchDraft(customerId: string, request: WatchRequest): Draf
     ok: true,
     draft: {
       kind: "property_watch",
-      title: `Watch rents in ${city} and tell me when a flat is €${budget} or less`,
+      title: `Watch rents in ${city} and tell me when a ${minRooms ? `flat with ${minRooms}+ rooms` : "flat"} is €${budget} or less`,
       summary: `${fitting.length ? `${fitting.length} of the ${seen.length} flats read today fit` : `None of the ${seen.length} flats read today fit`} (${what}). Once you approve, Context.dev checks ${search.pages.length} listing page${search.pages.length === 1 ? "" : "s"} every 6 hours and Sisu tells you when a rent drops into your budget or a new flat fits. The watching is real${search.mock ? " (example data here: no key is set)" : ""}; nothing is rented, booked or paid, and no one is contacted.`,
       checklist: [
         `Approve, and Sisu starts watching ${search.pages.map((page) => new URL(page.url).hostname.replace(/^www\./, "")).join(", ")}.`,

@@ -76,7 +76,7 @@ type PageResult = { page: WatchedPage; events: FitEvent[]; reread: boolean; chan
 // Reads a page again, as it is right now, and compares it with the last reading.
 async function reread(watch: PropertyWatch, page: WatchedPage, now: Date): Promise<Pick<PageResult, "page" | "events" | "problem">> {
   try {
-    const read = await readListings(page.url, { fresh: true });
+    const read = await readListings(page.url, { fresh: true, city: watch.city });
     if (!read.listings.length) return { page: { ...page, lastError: "The page had no listings Sisu could read." }, events: [], problem: `${hostOf(page.url)}: no listings could be read` };
     return { page: { ...page, listings: read.listings, lastReadAt: now.toISOString(), lastError: null }, events: detectFits(page.listings, read.listings, watch), problem: null };
   } catch (error) {
@@ -114,7 +114,7 @@ async function checkSearch(watch: PropertyWatch): Promise<{ events: FitEvent[]; 
     const watched = new Set(watch.pages.map((page) => page.url));
     const urls = [...new Set(changes.flatMap((change) => change.matchedUrls))].filter((url) => !watched.has(url) && LISTING_SITES.some((site) => URL.canParse(url) && (hostOf(url) === site || hostOf(url).endsWith(`.${site}`))));
     const known = new Set(watch.pages.flatMap((page) => page.listings.map(listingKey)));
-    const reads = await Promise.allSettled(urls.slice(0, MAX_NEW_PAGES_PER_CHECK).map((url) => readListings(url, { fresh: true })));
+    const reads = await Promise.allSettled(urls.slice(0, MAX_NEW_PAGES_PER_CHECK).map((url) => readListings(url, { fresh: true, city: watch.city })));
     const found = reads.flatMap((read) => (read.status === "fulfilled" ? read.value.listings : []));
     const events = found.filter((listing) => fits(listing, watch) && !known.has(listingKey(listing))).map((listing): FitEvent => ({ kind: "new_listing", listing, previousPriceEur: null }));
     return { events, changes: changes.length, problem: null };
@@ -171,8 +171,9 @@ export function simulatePriceDrop(customerId: string, watchId: string, now: Date
   if (!watch || !overview) return { ok: false, status: 404, reason: "We could not find that watch." };
   if (watch.status !== "active") return { ok: false, status: 409, reason: "This watch has been stopped." };
   const enoughRooms = (listing: Listing): boolean => watch.minRooms === null || (listing.rooms ?? 0) >= watch.minRooms;
-  const page = watch.pages.find((candidate) => candidate.listings.some((listing) => listing.pricePerMonthEur > watch.budgetEur && enoughRooms(listing)));
-  const target = page?.listings.filter((listing) => listing.pricePerMonthEur > watch.budgetEur && enoughRooms(listing)).sort((a, b) => a.pricePerMonthEur - b.pricePerMonthEur)[0];
+  // The cheapest watched flat that is over the budget, wherever it is listed.
+  const target = watch.pages.flatMap((candidate) => candidate.listings).filter((listing) => listing.pricePerMonthEur > watch.budgetEur && enoughRooms(listing)).sort((a, b) => a.pricePerMonthEur - b.pricePerMonthEur)[0];
+  const page = target ? watch.pages.find((candidate) => candidate.listings.includes(target)) : undefined;
   if (!page || !target) return { ok: false, status: 409, reason: "No watched flat is over the budget, so there is no price to drop." };
   const already = listNotifications(customerId).find((note) => note.simulated && note.watchId === watch.id && listingKey(note.listing) === listingKey(target));
   if (already) return { ok: true, notification: already };

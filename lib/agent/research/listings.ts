@@ -26,13 +26,14 @@ export const LISTING_SCHEMA = {
       type: "array",
       items: {
         type: "object",
-        required: ["title", "pricePerMonthEur", "rooms", "areaM2", "district", "availableFrom", "url"],
+        required: ["title", "pricePerMonthEur", "rooms", "areaM2", "district", "city", "availableFrom", "url"],
         properties: {
           title: { type: "string", description: "Street address of the flat, or the listing's short title" },
           pricePerMonthEur: { type: ["number", "null"], description: "Rent per month in euros, as a number" },
           rooms: { type: ["number", "null"], description: "Number of rooms, not counting the kitchen" },
           areaM2: { type: ["number", "null"], description: "Living area in square metres" },
           district: { type: ["string", "null"], description: "District or neighbourhood" },
+          city: { type: ["string", "null"], description: "City or municipality the flat is in" },
           availableFrom: { type: ["string", "null"], description: "When the flat is free, as the page states it" },
           url: { type: ["string", "null"], description: "Link to this listing's own page, if the page gives one" },
         },
@@ -81,6 +82,7 @@ export function cleanListings(extracted: RawListing[], pageUrl: string): { listi
         rooms: inRange(raw.rooms, ROOM_LIMITS),
         areaM2: inRange(raw.areaM2, AREA_LIMITS),
         district: safeName(raw.district, 50),
+        city: safeName(raw.city, 40),
         availableFrom: safeName(raw.availableFrom, 30),
         url: ownLink(raw.url, pageUrl),
         pageUrl,
@@ -90,12 +92,15 @@ export function cleanListings(extracted: RawListing[], pageUrl: string): { listi
   return { listings, dropped: candidates.length - listings.length };
 }
 
+// A page for one city often lists flats in its neighbours too. A flat is kept unless the page says it is somewhere else.
+export const inCity = (listing: Listing, city: string): boolean => !listing.city || listing.city.toLowerCase().includes(city.toLowerCase()) || city.toLowerCase().includes(listing.city.toLowerCase());
+
 // What makes two readings of a page the same flat: its own link if it has one, otherwise its address and size.
 export const listingKey = (listing: Listing): string => (listing.url !== listing.pageUrl ? listing.url : `${listing.pageUrl}#${listing.title.toLowerCase()}|${listing.rooms ?? "?"}|${listing.areaM2 ?? "?"}`);
 
 // Reads one page of rental listings with Context.dev. `fresh` asks for the page as it is now (a watch re-reading a
 // page that changed); otherwise a copy up to 15 minutes old is accepted and its age is reported.
-export async function readListings(url: string, options: { fresh?: boolean; signal?: AbortSignal } = {}): Promise<ListingPage> {
+export async function readListings(url: string, options: { fresh?: boolean; signal?: AbortSignal; city?: string } = {}): Promise<ListingPage> {
   const { contextDev } = getConfig();
   if (!contextDev.apiKey) throw missingKey("Context.dev", "CONTEXT_DEV_API_KEY");
   const started = Date.now();
@@ -113,7 +118,10 @@ export async function readListings(url: string, options: { fresh?: boolean; sign
   const body = (await response.json()) as ScrapeResponse;
   // A 200 response can still carry a failed output, so the success flag is checked on its own.
   if (body.json?.success !== true) throw new Error(body.json?.message ?? "Context.dev found no listings on the page.");
-  const { listings, dropped } = cleanListings(body.json.data?.listings ?? [], url);
+  const cleaned = cleanListings(body.json.data?.listings ?? [], url);
+  const { city } = options;
+  const listings = city ? cleaned.listings.filter((listing) => inCity(listing, city)) : cleaned.listings;
+  const dropped = cleaned.dropped;
   const age = body.cache_metadata?.age_ms;
   return { url, title: hostOf(url) ?? url, listings, dropped, cacheAgeMs: typeof age === "number" ? age : null, tookMs: Date.now() - started, mock: false };
 }
@@ -133,7 +141,7 @@ function mockSearch(city: string): ListingSearch {
     { title: "Esimerkkikatu 4 A", pricePerMonthEur: 1_040, rooms: 1, areaM2: 31, district: "Kallio" },
     { title: "Mallitie 12 B", pricePerMonthEur: 1_180, rooms: 2, areaM2: 44, district: "Vallila" },
     { title: "Testikuja 7", pricePerMonthEur: 965, rooms: 1, areaM2: 27, district: "Malmi" },
-  ].map((listing, index) => ({ ...listing, availableFrom: null, url: `${pageUrl}/${index + 1}`, pageUrl }));
+  ].map((listing, index) => ({ ...listing, city, availableFrom: null, url: `${pageUrl}/${index + 1}`, pageUrl }));
   return { city, query: listingQuery(city), pages: [{ url: pageUrl, title: "example.com", listings, dropped: 0, cacheAgeMs: null, tookMs: 0, mock: true }], found: [{ url: pageUrl, title: "Example listings" }], errors: [], retrievedAt: new Date().toISOString(), tookMs: 0, mock: true };
 }
 
@@ -150,7 +158,7 @@ export async function searchListings(city: string, signal?: AbortSignal): Promis
     const host = hostOf(result.url);
     return !!host && !seenHosts.has(host) && !!seenHosts.add(host);
   });
-  const reads = await Promise.allSettled(found.slice(0, MAX_PAGES).map((page) => readListings(page.url, { signal })));
+  const reads = await Promise.allSettled(found.slice(0, MAX_PAGES).map((page) => readListings(page.url, { signal, city })));
   const pages = reads.flatMap((read, index) => (read.status === "fulfilled" && read.value.listings.length ? [{ ...read.value, title: found[index].title }] : []));
   const errors = reads.flatMap((read, index) => (read.status === "rejected" ? [`${hostOf(found[index].url)}: ${(read.reason as Error).message}`] : read.value.listings.length ? [] : [`${hostOf(found[index].url)}: no listings could be read`]));
   return { city, query, pages, found: found.map((page) => ({ url: page.url, title: page.title })), errors, retrievedAt: new Date().toISOString(), tookMs: Date.now() - started, mock: false };

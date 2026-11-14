@@ -642,6 +642,7 @@ export type Listing = {
   rooms: number | null;
   areaM2: number | null;
   district: string | null;
+  city?: string | null; // the municipality the page states, if it states one (a "Helsinki" page can list Vantaa flats)
   availableFrom: string | null; // as the page states it
   url: string; // the listing's own page if the page links to one, otherwise the page it was read from
   pageUrl: string; // the page Context.dev read it from
