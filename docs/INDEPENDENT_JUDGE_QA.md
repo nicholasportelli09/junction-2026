@@ -144,3 +144,12 @@ Read the challenge brief through its text export (web open failed). Existing spo
 
 Handoff: https://github.com/Junction-2026-NMA/junction-2026/pull/10#issuecomment-6880605317
 Screenshot: `/Users/nicholasportelli/.t3/userdata/browser-artifacts/browser-screenshot-127-0-0-1-mwgm8ii6-59bce186.png`. This landing smoke does not validate backend approvals or native iOS.
+
+
+## Incremental audit — 14 November, 19:30 EET
+
+- Main `48af231`, prior web/native/PR9/10 heads unchanged. Reviewed new hosting PR #11 `284df5f` and native PR #12 `ae98865`; no customer-facing UI changes made.
+- **P1, PR #11:** Supabase version-conflict replay overrides a committed decline with a stale approval. Existing hosting tests 22/22; additional scripted regression fails. Reproduction and minimal correction: `docs/QA_PR11_CONFLICT_REPRO.md`. Handoff on PR #11; active storage implementation left to its owner.
+- PR #12: basket_bar decoding/presentation, hosted default, timeout and cookie transport reviewed. `swift build --package-path ios/SisuCore` passes (6.37 s). `swift test` fails to compile: no such module XCTest; active developer directory is CommandLineTools. App target, simulator, mobile readability and native voice/approval runtime were not validated. No new static defect confirmed; earlier fallback-notice handoff remains applicable.
+- No web UI delta; previous browser results remain historical, not fresh coverage of hosted persistence. No fresh live sponsor/remote database calls; neither checkout has .env.local. No full lint/build repeated because no implementation changed.
+- Challenge text export re-read. Basket chart support strengthens S-Pankki alignment; prior live sponsor evidence requirements remain. Available relevant threads read; no visible current hosting/native builder thread.
