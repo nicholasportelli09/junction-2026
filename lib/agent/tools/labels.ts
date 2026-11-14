@@ -26,6 +26,8 @@ export function activityLabel(call: ToolCall): string {
       return `Searching today's ${text("billType") ?? "bill"} offers with Exa and reading the pages with Context.dev`;
     case "search_flats":
       return `Searching rental listings in ${text("city") ?? "your city"} with Exa and reading them with Context.dev`;
+    case "search_prices":
+      return `Searching prices for ${text("what") ?? "that"} with Exa and reading the pages with Context.dev`;
     case "web_search":
       return call.function.arguments.includes('"deep":true') || call.function.arguments.includes('"deep": true') ? `Researching across several sources with Exa: ${text("query") ?? "your question"}` : `Searching the web with Exa: ${text("query") ?? "your question"}`;
     case "show_chart":

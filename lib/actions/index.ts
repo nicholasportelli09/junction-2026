@@ -21,7 +21,7 @@ export type ActionResult = { ok: true; action: AgentAction } | { ok: false; stat
 
 const isOpen = (action: AgentAction): boolean => action.status === "awaiting_approval";
 const sameAction = (a: AgentAction, draft: ActionDraft): boolean =>
-  a.kind === draft.kind && a.billType === draft.billType && a.offer?.provider === draft.offer?.provider && a.offer?.plan === draft.offer?.plan && a.monthlyAmountEur === draft.monthlyAmountEur && a.destination === draft.destination && a.watch?.city === draft.watch?.city && (a.watch?.minRooms ?? null) === (draft.watch?.minRooms ?? null);
+  a.kind === draft.kind && a.billType === draft.billType && a.offer?.provider === draft.offer?.provider && a.offer?.plan === draft.offer?.plan && a.monthlyAmountEur === draft.monthlyAmountEur && a.destination === draft.destination && a.watch?.city === draft.watch?.city && a.watch?.topic === draft.watch?.topic && a.watch?.budgetEur === draft.watch?.budgetEur && (a.watch?.minRooms ?? null) === (draft.watch?.minRooms ?? null);
 
 // Marks unanswered actions that have passed their time as expired, and logs it.
 function expireOld(now: Date): void {
@@ -62,7 +62,7 @@ export function saveDraft(customerId: string, draft: ActionDraft, now: Date = ne
     id: crypto.randomUUID(),
     customerId,
     status: "awaiting_approval",
-    simulated: draft.kind !== "property_watch",
+    simulated: draft.kind !== "property_watch" && draft.kind !== "price_watch",
     createdAt: now.toISOString(),
     expiresAt: new Date(now.getTime() + TTL_MS).toISOString(),
     decidedAt: null,
@@ -95,7 +95,7 @@ function decide(customerId: string, actionId: string, approve: boolean, impactOf
   // Approving carries the action out in the demo bank (lib/actions/bank.ts): money moves between the customer's
   // accounts there, or the bill changes. The bank can refuse, as a real one would when the money is not there.
   // A property watch has nothing to do with the bank: it moves no money, so it is not carried out there.
-  const isWatch = action.kind === "property_watch";
+  const isWatch = action.kind === "property_watch" || action.kind === "price_watch";
   const reference = action.id.slice(0, 8).toUpperCase();
   let execution: ActionExecution | null = null;
   const overview = approve && !isWatch ? buildOverview(customerId) : null;

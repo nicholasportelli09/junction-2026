@@ -3,7 +3,7 @@ import { impactOf } from "@/lib/actions/drafts";
 import { TOO_MANY, allowRequest, jsonError, parseCustomerId } from "@/lib/agent/http";
 import type { AgentAction } from "@/lib/types";
 import { withVisitor } from "@/lib/agent/visitor";
-import { startWatch } from "@/lib/watch";
+import { isWatchKind, startWatch } from "@/lib/watch";
 
 export const runtime = "nodejs";
 const MAX_AT_ONCE = 6;
@@ -25,7 +25,7 @@ export const POST = withVisitor(async function POST(request: Request) {
   const failed: { actionId: string; reason: string }[] = [];
   for (const id of ids) {
     const result = approveAction(customerId, id, impactOf);
-    if (result.ok && result.action.kind === "property_watch") await startWatch(customerId, result.action);
+    if (result.ok && isWatchKind(result.action.kind)) await startWatch(customerId, result.action);
     if (result.ok) approved.push(result.action);
     else failed.push({ actionId: id, reason: result.reason });
   }

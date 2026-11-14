@@ -18,8 +18,8 @@ const hostOf = (url: string): string => new URL(url).hostname.replace(/^www\./, 
 // The budget must be a figure the customer said themselves in this conversation, not one the model or a page supplied.
 const customerSaid = (ctx: ToolContext, value: number): boolean => ctx.userTexts.some((text) => digitsOf(text).some((n) => Math.abs(n - value) < 0.005));
 
-const forModel = (listing: Listing) => ({ address: listing.title, rentPerMonthEur: listing.pricePerMonthEur, rooms: listing.rooms, areaM2: listing.areaM2, district: listing.district, availableFrom: listing.availableFrom, source: hostOf(listing.url) });
-const listingFacts = (prefix: string, listings: Listing[]): Fact[] => listings.map((listing, index) => fact(`${prefix}:${index}:rent`, `${listing.title}: rent per month`, listing.pricePerMonthEur, "EUR/month", "read from the listing page", { source: "context.dev", url: listing.url }));
+const forModel = (listing: Listing) => ({ address: listing.title, rentPerMonthEur: listing.priceEur, rooms: listing.rooms, areaM2: listing.areaM2, district: listing.district, availableFrom: listing.availableFrom, source: hostOf(listing.url) });
+const listingFacts = (prefix: string, listings: Listing[]): Fact[] => listings.map((listing, index) => fact(`${prefix}:${index}:rent`, `${listing.title}: rent per month`, listing.priceEur, "EUR/month", "read from the listing page", { source: "context.dev", url: listing.url }));
 
 function searchStages(search: ListingSearch, citations: Citation[], read: number): StageDraft[] {
   return [
@@ -45,7 +45,7 @@ export async function searchFlats(args: Record<string, unknown>, ctx: ToolContex
   if (!all.length) return failure(SOURCE, `No rental listing page for ${city} could be read just now (${search.errors[0] ?? "no pages were found"}). Say so plainly.`);
 
   const rule = { budgetEur: budget, minRooms };
-  const byRent = (a: Listing, b: Listing): number => a.pricePerMonthEur - b.pricePerMonthEur;
+  const byRent = (a: Listing, b: Listing): number => a.priceEur - b.priceEur;
   const fitting = all.filter((listing) => fits(listing, rule)).sort(byRent);
   const nearest = all.filter((listing) => !fits(listing, rule) && (minRooms === null || (listing.rooms ?? 0) >= minRooms)).sort(byRent).slice(0, 3);
   const citations: Citation[] = search.pages.map((page) => ({ title: page.title, url: page.url, retrievedAt: search.retrievedAt, cacheAgeMs: page.cacheAgeMs, readBy: "context.dev" as const }));

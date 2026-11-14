@@ -35,19 +35,13 @@ async function call(method: "GET" | "POST" | "DELETE", path: string, body?: Json
 
 const schedule = { type: "interval", frequency: CHECK_EVERY_HOURS, unit: "hours" };
 
-// Watches one listing page. With instructions, Context.dev's judge reports only differences that matter to a renter.
-export async function createPageMonitor(url: string, city: string, signal?: AbortSignal): Promise<{ id: string; initialRunId: string | null }> {
-  const created = await call(
-    "POST",
-    "/monitors",
-    {
-      name: `Sisu flat watch: ${city}`.slice(0, 200),
-      target: { type: "page", url, instructions: "Report a change to the monthly rent of any flat, and flats added to or removed from the list. Ignore adverts, counters, sorting, dates and navigation." },
-      schedule,
-      tags: TAGS,
-    },
-    signal,
-  );
+export const FLAT_PAGE_INSTRUCTIONS = "Report a change to the monthly rent of any flat, and flats added to or removed from the list. Ignore adverts, counters, sorting, dates and navigation.";
+export const PRICE_PAGE_INSTRUCTIONS = "Report a change to the price of any item offered, and offers added to or removed from the page. Ignore adverts, counters, sorting, dates, reviews and navigation.";
+
+// Watches one page. With instructions, Context.dev's judge reports only differences that matter to a buyer or renter.
+// `name` is shown in the Context.dev dashboard: a city or a topic, never anything about the customer.
+export async function createPageMonitor(url: string, name: string, instructions: string, signal?: AbortSignal): Promise<{ id: string; initialRunId: string | null }> {
+  const created = await call("POST", "/monitors", { name: name.slice(0, 200), target: { type: "page", url, instructions }, schedule, tags: TAGS }, signal);
   const id = text(created.id);
   if (!id) throw new Error("Context.dev created no monitor.");
   return { id, initialRunId: text(created.initial_run_id) };

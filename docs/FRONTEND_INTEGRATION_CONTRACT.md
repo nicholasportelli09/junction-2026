@@ -586,6 +586,28 @@ Without the hook: `GET /api/watch?customerId=` returns `{ watches, notifications
 `{ customerId, runNow? }` polls; `POST /api/watch/:id/stop` and `POST /api/watch/:id/simulate-drop` take
 `{ customerId }`. Send the visitor's `X-Sisu-Session` header as for every other call: a watch belongs to one visitor.
 
+### Any price, not only flats (added 14 Nov, late)
+
+The same watch now covers anything with a price. "Tell me when an iPhone 15 is under 450 euros" or "find me a used
+Corolla under 12,000" runs `search_prices`; when nothing is at the price, the message carries an `action` of kind
+`price_watch`. Treat it exactly like `property_watch`: same card, same `approve`, same `watches` and
+`notifications`. What tells them apart:
+
+| Field | Flat watch | Price watch |
+|---|---|---|
+| `action.kind` | `property_watch` | `price_watch` |
+| `watch.topic` | `null` | what the customer named, e.g. `"iPhone 15"` |
+| `watch.city` | the city | `null` |
+| `watch.priceUnit` | `"EUR/month"` | `"EUR"` (paid once) |
+| `notification.leftOverAfterEur` | what a month leaves over with that rent | `null` |
+| `notification.balanceAfterEur` | `null` | expected balance just before payday after paying |
+
+Draw the watch's heading as `watch.topic ?? "Flats in " + watch.city`, and add "a month" to the price only when
+`priceUnit` is `"EUR/month"`. `notification.title` and `summary` are already worded correctly for both.
+
+One rename since the first version: a listing's price is `listing.priceEur` (it was `pricePerMonthEur`), because it
+is a rent for a flat and a full price for anything else.
+
 The Swift client needs no change to keep working (`ActionKind` is an open enum); it shows a watch as an action
 with a kind it does not know until a case is added.
 
