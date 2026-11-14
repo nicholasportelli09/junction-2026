@@ -60,6 +60,12 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
     { billType: { type: "string", enum: BILL_TYPES }, yearlyKwh: { type: "number", description: "electricity only, ONLY if the customer said it" } },
     ["billType"],
   ),
+  tool(
+    "search_flats",
+    "Live search for flats to rent in a city within a monthly budget the customer said. If nothing fits it sets up a price watch for them to approve.",
+    { city: { type: "string", description: "the city they named; leave out for where they live" }, budgetEur: { type: "number", description: "the monthly rent they said" }, minRooms: { type: "number", description: "only if they asked for a number of rooms" }, watch: { type: "boolean", description: "true if they asked you to keep watching even though some flats fit" } },
+    ["budgetEur"],
+  ),
   tool("web_search", "Live web search (Exa) for anything in the outside world: rents and prices nearby, typical water or energy use, benefits, rates, rules, a company, how something works. Keep the query general: place and topic, no personal figures.", { query: { type: "string" }, deep: { type: "boolean", description: "true for an open question that needs several sources put together (who can get a benefit, what changes next year, how a rule works for someone like them). Takes a few seconds longer. Leave out for a single fact or price." } }, ["query"]),
   tool(
     "calculate",

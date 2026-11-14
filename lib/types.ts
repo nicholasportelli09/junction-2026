@@ -369,7 +369,7 @@ export type TeachingCard = {
   revealVisual?: Visual; // a chart to show with the answer, once the customer has guessed
 };
 
-export type ActionKind = "switch_contract" | "standing_transfer" | "one_off_transfer";
+export type ActionKind = "switch_contract" | "standing_transfer" | "one_off_transfer" | "property_watch";
 export type ActionStatus = "awaiting_approval" | "executed_simulated" | "declined" | "expired";
 
 export type ActionImpact = {
@@ -387,7 +387,7 @@ export type AgentAction = {
   customerId: string;
   kind: ActionKind;
   status: ActionStatus;
-  simulated: true;
+  simulated: boolean; // false only for a property watch: that one really starts Context.dev monitors when approved
   title: string;
   summary: string;
   checklist: string[]; // the steps a real switch would take
@@ -406,9 +406,10 @@ export type AgentAction = {
   destination?: "savings" | "investments"; // transfers only: where the money goes, within the customer's own accounts
   warning?: string | null; // show this prominently: what going ahead would do, and the safer amount
   confirmation?: string | null; // filled in when approved: "Done (simulation). Reference SIM-1A2B3C4D."
+  watch?: WatchPlan | null; // property_watch only: what would be watched once approved
 };
 
-export type AuditEventType = "action_prepared" | "action_approved" | "action_executed_simulated" | "action_declined" | "action_expired" | "memory_saved" | "memory_forgotten" | "consent_changed" | "demo_reset";
+export type AuditEventType = "action_prepared" | "action_approved" | "action_executed_simulated" | "action_declined" | "action_expired" | "memory_saved" | "memory_forgotten" | "consent_changed" | "demo_reset" | "watch_started" | "watch_checked" | "watch_notified" | "watch_stopped";
 
 // Tamper-evident log: each event carries the hash of the one before it.
 export type AuditEvent = {
@@ -632,3 +633,66 @@ export type SisuActivity = { state: SisuActivityState; liito: LiitoPose; label: 
 export type ReadinessId = "model" | "model-backup" | "exa" | "context-dev" | "elevenlabs" | "finance" | "store";
 export type ReadinessCheck = { id: ReadinessId; sponsor: string; role: string; status: "ok" | "down" | "not-configured" | "mock"; latencyMs: number | null; detail: string; standIn: string | null; blocksDemo: boolean };
 export type ReadinessReport = { ready: boolean; voiceReady: boolean; mock: boolean; headline: string; checks: ReadinessCheck[]; checkedAt: string; ageMs: number };
+
+// --- Property watch (added 14 Nov). Sisu watches rental listing pages with Context.dev monitors and tells the
+// customer when a flat fits the budget they said. Read with GET /api/watch; poll with POST /api/watch/check. ---
+export type Listing = {
+  title: string; // street address or the listing's own short title
+  pricePerMonthEur: number;
+  rooms: number | null;
+  areaM2: number | null;
+  district: string | null;
+  availableFrom: string | null; // as the page states it
+  url: string; // the listing's own page if the page links to one, otherwise the page it was read from
+  pageUrl: string; // the page Context.dev read it from
+};
+
+// What a property_watch action would watch: the city, the budget the customer said, the listing pages, and the
+// listings read from them when the watch was prepared (the starting point later readings are compared with).
+export type WatchPlan = { city: string; budgetEur: number; minRooms: number | null; urls: string[]; seen: Listing[] };
+
+export type WatchedPage = {
+  url: string;
+  monitorId: string | null; // the Context.dev monitor on this page; null when the page is re-read on a timer instead
+  listings: Listing[]; // the page as last read
+  lastReadAt: string;
+  lastChangeAt: string | null; // when Context.dev last reported a change on the page
+  lastError: string | null;
+};
+
+export type PropertyWatch = {
+  id: string;
+  actionId: string; // the approved action that started it
+  customerId: string;
+  city: string;
+  budgetEur: number;
+  minRooms: number | null;
+  status: "active" | "stopped";
+  mode: "monitor" | "reread"; // monitor: Context.dev watches and Sisu polls its changes. reread: Sisu re-reads the pages itself
+  pages: WatchedPage[];
+  searchMonitorId: string | null; // a Context.dev search monitor for listings that appear elsewhere
+  createdAt: string;
+  lastCheckedAt: string | null;
+  problems: string[];
+};
+
+export type WatchNotification = {
+  id: string;
+  watchId: string;
+  customerId: string;
+  kind: "price_drop" | "new_listing";
+  title: string;
+  summary: string;
+  listing: Listing;
+  previousPriceEur: number | null;
+  budgetEur: number;
+  underBudgetByEur: number;
+  leftOverAfterEur: number; // what an average month would leave over with this rent, from the customer's own figures
+  detectedAt: string;
+  detectedBy: "context.dev monitor" | "context.dev re-read" | "simulation";
+  simulated: boolean; // true when the change was made up by the demo's "simulate a price drop" button
+  facts: Fact[];
+};
+
+export type WatchList = { customerId: string; watches: PropertyWatch[]; notifications: WatchNotification[] };
+export type WatchCheck = { customerId: string; checked: number; changesSeen: number; pagesReread: number; notifications: WatchNotification[]; problems: string[] };
