@@ -11,6 +11,8 @@ import { savingRoom } from "@/lib/finance/saving";
 import { cleanInput, runScenario } from "@/lib/finance/scenario";
 import { billFor, billLabel, getMemory, statedYearlyKwh } from "@/lib/memory";
 import type { ActionImpact, AgentAction, BillType, Offer } from "@/lib/types";
+import { readState } from "@/lib/store/state";
+import { accountsFrom, withCurrentAccount } from "./bank";
 import type { ActionDraft } from "./index";
 
 const IMPACT_YEARS = 5;
@@ -108,8 +110,10 @@ const DESTINATION = { savings: "savings", investments: "your investment account"
 // against their own numbers. If it would leave them short, the action is still prepared (it is their money and
 // their decision) but it carries a warning that says what would happen and what amount would be safe.
 export function buildTransferDraft(customerId: string, amountEur: number, options: TransferOptions): DraftResult {
-  const overview = buildOverview(customerId);
-  if (!overview) return { ok: false, status: 404, reason: "We could not find that customer." };
+  const bankData = buildOverview(customerId);
+  if (!bankData) return { ok: false, status: 404, reason: "We could not find that customer." };
+  // Money already moved by approved transfers is no longer in the account, so it cannot be moved again.
+  const overview = withCurrentAccount(bankData, accountsFrom(bankData, readState().actions));
   const once = options.once === true;
   const destination = options.destination ?? "savings";
   const limits = once ? ONE_OFF_LIMITS : TRANSFER_LIMITS;
@@ -154,7 +158,7 @@ export function buildTransferDraft(customerId: string, amountEur: number, option
       facts: [
         fact("transfer:amount", once ? "One-off transfer" : "Transfer per month", amount, once ? "EUR" : "EUR/month", "the amount asked for", { source: "customer-stated" }),
         ...(once ? [] : [fact("transfer:yearly", "Set aside per year", amount * 12, "EUR/year", "monthly amount times 12", { source: "calculation" })]),
-        fact("transfer:balance", "Balance today", overview.balance, "EUR", `account balance on ${overview.dataTimestamp}`),
+        fact("transfer:balance", "Balance today", overview.balance, "EUR", overview.balanceBasis ?? `account balance on ${overview.dataTimestamp}`, overview.balanceBasis ? { source: "calculation" } : {}),
         ...(once ? [fact("transfer:low-after", "Expected balance just before payday, after the transfer", lowAfter, "EUR", "payday projection minus the transfer", { source: "calculation" })] : []),
         fact("transfer:room-now", "Could be moved today", room.nowEur, "EUR", room.basis, { source: "calculation" }),
         fact("transfer:room-monthly", "Could be moved every month", room.perMonthEur, "EUR/month", room.basis, { source: "calculation" }),

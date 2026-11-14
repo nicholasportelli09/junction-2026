@@ -105,6 +105,7 @@ export type Overview = {
   windowFrom: string;
   windowTo: string;
   balance: number;
+  balanceBasis?: string; // set only when `balance` is not the bank data's own figure (see lib/actions/bank.ts)
   monthlyIncome: number;
   monthlySpending: number;
   monthlySaved: number;
@@ -381,6 +382,36 @@ export type ActionImpact = {
   summary: string;
 };
 
+// What approving an action did, step by step. It is carried out in Sisu's demo bank: a ledger kept with the
+// visitor's state, where a transfer really moves the balance and a switch really changes the bill. No real money
+// moves. A real bank's payment API takes the demo bank's place behind the same record (lib/actions/bank.ts).
+export type ActionExecution = {
+  bank: "sisu-demo-bank";
+  reference: string;
+  at: string;
+  steps: { label: string; detail: string }[]; // what was done, in order, in words to show as they are
+  transfer?: { amountEur: number; to: "savings" | "investments"; currentBeforeEur: number; currentAfterEur: number; toBeforeEur: number; toAfterEur: number };
+  standingOrder?: { monthlyEur: number; to: "savings" | "investments"; firstRunOn: string | null };
+  contract?: { billType: BillType; provider: string; plan: string | null; monthlyBeforeEur: number; monthlyAfterEur: number; orderUrl: string | null };
+};
+
+// The customer's accounts in the demo bank: the bank data's balance, then everything approved actions did to it.
+// GET /api/accounts. Every number has a receipt in `facts`.
+export type AccountsView = {
+  customerId: string;
+  bank: "sisu-demo-bank";
+  simulated: true;
+  bankDataDate: string; // the day the bank data's balance is from
+  current: { atBankDataEur: number; movedOutEur: number; nowEur: number };
+  savings: { movedInEur: number };
+  investments: { movedInEur: number };
+  standingOrders: { actionId: string; monthlyEur: number; to: "savings" | "investments"; firstRunOn: string | null; reference: string }[];
+  contracts: { actionId: string; billType: BillType; provider: string; plan: string | null; monthlyBeforeEur: number; monthlyAfterEur: number; reference: string }[];
+  movements: { actionId: string; at: string; amountEur: number; to: "savings" | "investments"; currentAfterEur: number; reference: string }[]; // newest first
+  facts: Fact[];
+  note: string; // one sentence to show with it: what a demo bank is
+};
+
 // A prepared action. Nothing happens until the user approves it, and even then it is a simulation.
 export type AgentAction = {
   id: string;
@@ -406,6 +437,7 @@ export type AgentAction = {
   destination?: "savings" | "investments"; // transfers only: where the money goes, within the customer's own accounts
   warning?: string | null; // show this prominently: what going ahead would do, and the safer amount
   confirmation?: string | null; // filled in when approved: "Done (simulation). Reference SIM-1A2B3C4D."
+  execution?: ActionExecution | null; // filled in when approved: what was carried out in the demo bank, with balances before and after
   watch?: WatchPlan | null; // property_watch only: what would be watched once approved
 };
 
