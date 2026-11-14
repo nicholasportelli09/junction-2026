@@ -610,3 +610,16 @@ is a rent for a flat and a full price for anything else.
 
 The Swift client needs no change to keep working (`ActionKind` is an open enum); it shows a watch as an action
 with a kind it does not know until a case is added.
+
+## Voice: what the backend takes, checked live on 14 Nov
+
+Checked against the hosted backend with real recordings (`tests/gauntlet/voice-formats.mjs`).
+
+| | |
+|---|---|
+| Recording formats | AAC in MP4 (`audio/mp4`, iPhone Safari and the iOS app), Opus in WebM (`audio/webm`, Chrome and Android), Opus in Ogg (Firefox), WAV and MP3. A missing or generic content type works too. |
+| Languages | Detected from the speech; the answer comes back in the language spoken (checked: English, Finnish, Swedish). Send `language` only when the customer chose one. |
+| Size | At most 4 MB per recording. Over that the answer is 413 with `{ "error": … }`. Over 4.5 MB the host itself answers 413 in plain text, so stop recording well before that: a minute of compressed speech is under 1 MB. |
+| Nothing heard | Silence, noise or a very short clip ends the stream with one `error` event: "Sisu did not catch any words. Hold the button while you speak." |
+| Speed | Speech to text about 0.5 s; first sentence of the answer 1.1 to 2.3 s after the upload; first audio of a spoken sentence about 0.3 s. |
+| Speaking an answer | `POST /api/voice/tts` per sentence, `format: "pcm"` to stream or `"mp3"` for a file, at most 600 characters. Five sentences at once are fine. |

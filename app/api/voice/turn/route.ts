@@ -34,7 +34,7 @@ export const POST = withVisitor(async function POST(request: Request) {
   const form = await request.formData().catch(() => null);
   const audio = form?.get("audio");
   if (!(audio instanceof Blob) || audio.size === 0) return jsonError("No recording was received.", 400);
-  if (audio.size > MAX_AUDIO_BYTES) return jsonError("That recording is too long. Keep it under a minute.", 413);
+  if (audio.size > MAX_AUDIO_BYTES) return jsonError("That recording is too long. Keep it under a minute, or type your question.", 413);
 
   const history = (() => {
     try {
