@@ -50,8 +50,10 @@ type Delta = {
 };
 
 // Yields text as it arrives, then one "end" chunk carrying any tool calls the model asked for.
-// Stall protection: if the main model errors or stays silent past FIRST_TOKEN_LIMIT_MS, the same
-// request goes to the backup model (the same Nemotron on another host) and the trace says so.
+// Stall protection: if the main model errors or stays silent past the first-token limit, the same request also
+// goes to the backup model (the same Nemotron on another host). Whichever host starts first takes the step, and
+// the trace says which. A slow main model is not cancelled before the backup has started, so a slow start still
+// gets its answer when the backup is down too.
 export async function* streamChat(options: StreamOptions): AsyncGenerator<ModelChunk> {
   const config = getConfig();
   if (config.isMock) {
@@ -64,56 +66,105 @@ export async function* streamChat(options: StreamOptions): AsyncGenerator<ModelC
     return;
   }
 
-  // During an outage the first failed step opens the breaker; later steps skip the wait and go straight to the backup.
-  if (shouldSkip(config.model)) {
-    yield* withoutStarted(streamFrom(backup, options, options.signal, true));
-    return;
-  }
+  const main: Lane = { endpoint: config.model, isBackup: false };
+  const spare: Lane = { endpoint: backup, isBackup: true };
+  // During an outage the first failed step opens the breaker; later steps ask the backup first, with no wait.
+  const [lead, other] = shouldSkip(config.model) ? [spare, main] : [main, spare];
+  yield* withoutStarted(firstToStart(lead, other, options));
+}
 
-  const giveUp = new AbortController();
-  const signal = options.signal ? AbortSignal.any([options.signal, giveUp.signal]) : giveUp.signal;
-  const main = streamFrom(config.model, options, signal, false);
-  const firstChunk = main.next();
-  firstChunk.catch(() => undefined); // handled below; this stops a late failure being reported twice
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const limit = firstTokenLimitMs();
-  const tooSlow = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`no reply within ${limit} ms`)), limit);
+type Lane = { endpoint: ModelEndpoint; isBackup: boolean };
+type Runner = { lane: Lane; cancel: AbortController; chunks: AsyncGenerator<RawChunk>; first: Promise<IteratorResult<RawChunk>> };
+type Start = { runner: Runner; first: IteratorResult<RawChunk> };
+
+function begin(lane: Lane, options: StreamOptions): Runner {
+  const cancel = new AbortController();
+  const signal = options.signal ? AbortSignal.any([options.signal, cancel.signal]) : cancel.signal;
+  const chunks = streamFrom(lane.endpoint, options, signal, lane.isBackup);
+  const first = chunks.next();
+  first.catch(() => undefined); // handled where it is awaited; this stops a late failure being reported twice
+  return { lane, cancel, chunks, first };
+}
+
+// The breaker only follows the main model: the backup is asked whenever the main one is not answering.
+function note(lane: Lane, answered: boolean): void {
+  if (lane.isBackup) return;
+  if (answered) recordSuccess(lane.endpoint);
+  else recordFailure(lane.endpoint);
+}
+
+// How long both hosts may stay silent before each is asked once more. A hosted model sometimes hangs on one request
+// and answers the next at once (measured live on 14 Nov with our GPU unreachable: one turn failed after 25 s, the
+// next was answered in 1 s). MODEL_REASK_LIMIT_MS overrides it.
+const reAskLimitMs = (): number => Number(process.env.MODEL_REASK_LIMIT_MS) || 5_000;
+
+type Waited = Start | { silent: true } | { failed: unknown };
+
+// Waits for the first of `runners` to start. `silent` when none has started within `ms` (null waits for as long
+// as the requests live); `failed`, with the error of the one asked last, when every one of them has failed.
+async function firstOf(runners: Runner[], ms: number | null): Promise<Waited> {
+  const anyStart = Promise.any(runners.map((runner) => runner.first.then((first): Start => ({ runner, first })))).catch((error: unknown): Waited => {
+    const errors: unknown[] = error instanceof AggregateError ? error.errors : [error];
+    return { failed: errors[errors.length - 1] };
   });
-
-  let first: IteratorResult<RawChunk>;
+  if (ms === null) return anyStart;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const silence = new Promise<Waited>((resolve) => {
+    timer = setTimeout(() => resolve({ silent: true }), ms);
+  });
   try {
-    first = await Promise.race([firstChunk, tooSlow]);
-  } catch (error) {
-    if (options.signal?.aborted) throw error;
-    giveUp.abort();
-    recordFailure(config.model);
-    console.error(`[agent] ${config.model.provider} model failed or stalled (${(error as Error).message}); switching to ${backup.provider}`);
-    yield* withoutStarted(streamFrom(backup, options, options.signal, true));
-    return;
+    return await Promise.race([anyStart, silence]);
   } finally {
     clearTimeout(timer);
   }
+}
+
+// Asks `leadLane`. If it fails or is silent past the first-token limit, `otherLane` is asked as well, and if both
+// then stay silent each is asked once more. Whichever request starts first takes the step; the rest are cancelled.
+// Before this, a silent host was cancelled at the limit, so a main model that was merely slow lost its turn to a
+// backup that could be down (measured live on 14 Nov: three failed turns of 27 to 57 s with a healthy GPU).
+async function* firstToStart(leadLane: Lane, otherLane: Lane, options: StreamOptions): AsyncGenerator<RawChunk> {
+  const runners: Runner[] = [begin(leadLane, options)];
+  const limit = firstTokenLimitMs();
+  let waited = await firstOf(runners, limit);
+  if (!("runner" in waited)) {
+    if (options.signal?.aborted) throw "failed" in waited ? waited.failed : new DOMException("The request was cancelled.", "AbortError");
+    note(leadLane, false);
+    const reason = "failed" in waited ? (waited.failed as Error).message : `no reply within ${limit} ms`;
+    console.error(`[agent] ${leadLane.endpoint.provider} model failed or stalled (${reason}); asking ${otherLane.endpoint.provider}`);
+    runners.push(begin(otherLane, options));
+    waited = await firstOf(runners, reAskLimitMs());
+    if ("silent" in waited) {
+      console.error(`[agent] neither model host has started; asking both once more`);
+      runners.push(begin(leadLane, options), begin(otherLane, options));
+      waited = await firstOf(runners, null);
+    }
+  }
+  if ("failed" in waited) throw waited.failed;
+  if ("silent" in waited) throw new Error("The reasoning model did not answer."); // not reachable: the last wait has no limit
+  const started: Start = waited;
+  for (const other of runners) if (other !== started.runner) other.cancel.abort();
+  if (runners.length > 1 && started.runner === runners[0]) console.error(`[agent] ${leadLane.endpoint.provider} model answered after all; staying with it`);
+
+  const { runner, first } = started;
   if (first.done) return;
-  recordSuccess(config.model);
-  // The main model has started. If its connection then breaks before it has said anything to the user
-  // (for example while it was still writing a tool call), the backup can take the whole step over unnoticed.
+  note(runner.lane, true);
+  // The host has started. If its connection then breaks before it has said anything to the user (for example
+  // while it was still writing a tool call), the other host can take the whole step over unnoticed.
   let saidSomething = false;
   try {
-    if (first.value.type !== "started") {
-      saidSomething = first.value.type === "delta";
-      yield first.value;
-    }
-    for await (const chunk of main) {
-      if (chunk.type === "started") continue;
+    saidSomething = first.value.type === "delta";
+    yield first.value;
+    for await (const chunk of runner.chunks) {
       saidSomething ||= chunk.type === "delta";
       yield chunk;
     }
   } catch (error) {
     if (options.signal?.aborted || saidSomething) throw error;
-    recordFailure(config.model);
-    console.error(`[agent] ${config.model.provider} model broke off mid-step (${(error as Error).message}); switching to ${backup.provider}`);
-    yield* withoutStarted(streamFrom(backup, options, options.signal, true));
+    note(runner.lane, false);
+    const takeover = runner.lane === leadLane ? otherLane : leadLane;
+    console.error(`[agent] ${runner.lane.endpoint.provider} model broke off mid-step (${(error as Error).message}); switching to ${takeover.endpoint.provider}`);
+    yield* streamFrom(takeover.endpoint, options, options.signal, takeover.isBackup);
   }
 }
 

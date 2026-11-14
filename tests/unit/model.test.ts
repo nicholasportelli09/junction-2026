@@ -36,6 +36,19 @@ function breaksAfter(lines: unknown[]): Response {
   );
 }
 
+// A host that accepts the request and never answers. It only ends when the request is cancelled.
+function hangs(init: RequestInit | undefined, onCancel: () => void = () => {}): Promise<Response> {
+  return new Promise<Response>((_, reject) => init?.signal?.addEventListener("abort", () => (onCancel(), reject(new DOMException("aborted", "AbortError")))));
+}
+
+// A host that answers after `ms`, unless the request is cancelled first.
+function after(ms: number, answer: () => Response, init: RequestInit | undefined, onCancel: () => void = () => {}): Promise<Response> {
+  return new Promise<Response>((resolve, reject) => {
+    const timer = setTimeout(() => resolve(answer()), ms);
+    init?.signal?.addEventListener("abort", () => (clearTimeout(timer), onCancel(), reject(new DOMException("aborted", "AbortError"))));
+  });
+}
+
 describe("model client: failover between our GPU and the backup", () => {
   let restore = () => {};
   const saved = { ...process.env };
@@ -45,7 +58,7 @@ describe("model client: failover between our GPU and the backup", () => {
   });
   afterEach(() => {
     restore();
-    for (const key of ["MODEL_PROVIDER", "MODEL_FALLBACK", "VERDA_BASE_URL", "VERDA_API_KEY", "NEMOTRON_BASE_URL", "NEMOTRON_API_KEY", "MODEL_FIRST_TOKEN_LIMIT_MS"]) {
+    for (const key of ["MODEL_PROVIDER", "MODEL_FALLBACK", "VERDA_BASE_URL", "VERDA_API_KEY", "NEMOTRON_BASE_URL", "NEMOTRON_API_KEY", "MODEL_FIRST_TOKEN_LIMIT_MS", "MODEL_REASK_LIMIT_MS"]) {
       if (saved[key] === undefined) delete process.env[key];
       else process.env[key] = saved[key];
     }
@@ -162,6 +175,99 @@ describe("model client: failover between our GPU and the backup", () => {
     resetBreakers(); // stands in for the background probe finding the host healthy after its cooldown
     assert.equal((await run()).end.provider, "verda");
     assert.equal(breakerStatus(getConfig().model).open, false);
+  });
+
+  // Regression: 14 Nov, live. Our GPU took over 2 s to start a few times while NVIDIA's hosted backup was down.
+  // The slow request was cancelled at the limit and the turn waited 25 s on the dead backup, then failed.
+  it("a slow start on our GPU still gets its answer when the backup says nothing", async () => {
+    let backupCancelled = false;
+    restore = stubFetch((url, init) => (url.startsWith(VERDA) ? after(300, () => sse([text("Own GPU, a bit late."), "[DONE]"]), init) : hangs(init, () => (backupCancelled = true))));
+    const started = Date.now();
+    const { text: said, end } = await run();
+    assert.equal(said, "Own GPU, a bit late.");
+    assert.deepEqual([end.provider, end.usedBackup], ["verda", false]);
+    assert.ok(Date.now() - started < 1_500, "answered when the GPU started, not at the long timeout");
+    assert.equal(backupCancelled, true, "the backup request is cancelled once the GPU has answered");
+    assert.equal(breakerStatus(getConfig().model).open, false, "the GPU counts as healthy again");
+  });
+
+  it("a slow start on our GPU still gets its answer when the backup returns an error", async () => {
+    restore = stubFetch((url, init) => (url.startsWith(VERDA) ? after(300, () => sse([text("Own GPU."), "[DONE]"]), init) : new Response("down", { status: 503 })));
+    const { text: said, end } = await run();
+    assert.equal(said, "Own GPU.");
+    assert.equal(end.usedBackup, false);
+  });
+
+  it("when our GPU is slow and the backup is quicker, the backup takes the step and the slow request is cancelled", async () => {
+    let verdaCancelled = false;
+    restore = stubFetch((url, init) => (url.startsWith(VERDA) ? after(2_000, () => sse([text("Too late."), "[DONE]"]), init, () => (verdaCancelled = true)) : sse([text("Backup."), "[DONE]"])));
+    const started = Date.now();
+    const { text: said, end } = await run();
+    assert.equal(said, "Backup.");
+    assert.equal(end.usedBackup, true);
+    assert.ok(Date.now() - started < 1_000);
+    assert.equal(verdaCancelled, true);
+  });
+
+  it("while the backup is in charge and then goes down, our GPU is asked again instead of failing the turn", async () => {
+    let verdaUp = false;
+    restore = stubFetch((url, init) => {
+      if (url.startsWith(VERDA)) return verdaUp ? sse([text("Own GPU."), "[DONE]"]) : hangs(init);
+      return verdaUp ? hangs(init) : sse([text("Backup."), "[DONE]"]);
+    });
+    assert.equal((await run()).end.provider, "nvidia"); // the GPU stalls: the breaker opens and the backup leads
+    assert.equal(breakerStatus(getConfig().model).open, true);
+    verdaUp = true; // now the other way round: the backup is silent and the GPU is back
+    const { text: said, end } = await run();
+    assert.equal(said, "Own GPU.");
+    assert.deepEqual([end.provider, end.usedBackup], ["verda", false]);
+    assert.equal(breakerStatus(getConfig().model).open, false);
+  });
+
+  it("stops both requests when the customer leaves during a slow start", async () => {
+    const cancelled: string[] = [];
+    restore = stubFetch((url, init) => hangs(init, () => cancelled.push(url.startsWith(VERDA) ? "verda" : "nvidia")));
+    const leave = new AbortController();
+    const turn = (async () => {
+      for await (const chunk of streamChat({ messages: [{ role: "user", content: "Hi" }], tools: [], maxTokens: 50, signal: leave.signal })) void chunk;
+    })();
+    await new Promise((resolve) => setTimeout(resolve, 250)); // past the stall limit: both hosts have been asked
+    leave.abort();
+    await assert.rejects(turn);
+    assert.deepEqual(cancelled.sort(), ["nvidia", "verda"]);
+  });
+
+  // Regression: 14 Nov, live, with our GPU unreachable. One request to the hosted backup hung and the turn failed
+  // after 25 s; the very next request was answered in 1 s.
+  it("with our GPU unreachable, a backup request that hangs is asked once more and that attempt answers", async () => {
+    process.env.MODEL_REASK_LIMIT_MS = "150";
+    let backupCalls = 0;
+    let firstCancelled = false;
+    restore = stubFetch((url, init) => {
+      if (url.startsWith(VERDA)) throw new TypeError("fetch failed");
+      backupCalls += 1;
+      return backupCalls === 1 ? hangs(init, () => (firstCancelled = true)) : sse([text("Backup, second attempt."), "[DONE]"]);
+    });
+    const started = Date.now();
+    const { text: said, end } = await run();
+    assert.equal(said, "Backup, second attempt.");
+    assert.equal(end.usedBackup, true);
+    assert.ok(Date.now() - started < 1_500, "answered at the second attempt, not at the long timeout");
+    assert.equal(backupCalls, 2, "asked once more, not in a loop");
+    assert.equal(firstCancelled, true, "the hung request is cancelled");
+  });
+
+  it("when both hosts hang on the first request, the second attempt at our GPU answers", async () => {
+    process.env.MODEL_REASK_LIMIT_MS = "150";
+    const calls: string[] = [];
+    restore = stubFetch((url, init) => {
+      calls.push(url.startsWith(VERDA) ? "verda" : "nvidia");
+      return calls.length <= 2 ? hangs(init) : url.startsWith(VERDA) ? sse([text("Own GPU, second attempt."), "[DONE]"]) : hangs(init);
+    });
+    const { text: said, end } = await run();
+    assert.equal(said, "Own GPU, second attempt.");
+    assert.equal(end.usedBackup, false);
+    assert.deepEqual(calls, ["verda", "nvidia", "verda", "nvidia"]);
   });
 
   it("fails clearly when both hosts are down", async () => {
