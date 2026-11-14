@@ -139,7 +139,7 @@ export default function AgentBench() {
         </ul>
       )}
 
-      <WatchPanel customerId={customerId} />
+      <WatchPanel watches={sisu.watches} notifications={sisu.notifications} onCheck={sisu.checkWatches} onStop={sisu.stopWatch} onSimulate={sisu.simulatePriceDrop} />
 
       <ol className="space-y-3">
         {sisu.messages.map((message) => <li key={message.id}><MessageCard message={message} onApprove={(id) => void sisu.approve(id)} onDecline={(id) => void sisu.decline(id)} /></li>)}

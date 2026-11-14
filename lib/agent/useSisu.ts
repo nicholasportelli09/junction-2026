@@ -3,10 +3,12 @@
 // One hook for the whole conversation: type or hold-to-talk, streamed answers, spoken replies, interruption.
 // Usage is shown in context/frontend-integration.md and app/dev/agent/page.tsx.
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { AgentAction, BillType, ChatTurn, Citation, CustomerMemory, Fact, Grounding, MemoryItem, ResearchResult, Stage, SisuActivity, TeachingCard, ToolTrace, TurnTimings, Visual } from "@/lib/types";
+import type { AgentAction, BillType, ChatTurn, Citation, CustomerMemory, Fact, Grounding, MemoryItem, PropertyWatch, ResearchResult, Stage, SisuActivity, TeachingCard, ToolTrace, TurnTimings, Visual, WatchCheck, WatchNotification } from "@/lib/types";
 import { freedByApprovedSwitches } from "@/lib/actions/freed";
 import { IDLE, activity as makeActivity, nextActivity } from "./activity";
-import { type Recorder, type Speaker, type VoiceChoice, approveAction, confirmBill as saveBillName, createRecorder, createSpeaker, declineAction, fetchActions, fetchMemory, streamTurn, warmAgent } from "./client";
+import { type Recorder, type Speaker, type VoiceChoice, approveAction, checkWatches as pollWatches, confirmBill as saveBillName, createRecorder, createSpeaker, declineAction, fetchActions, fetchMemory, fetchWatches, simulateWatchDrop, stopWatch as endWatch, streamTurn, warmAgent } from "./client";
+
+const WATCH_CHECK_EVERY_MS = 60_000;
 
 export type SisuStatus = "idle" | "recording" | "thinking" | "speaking";
 
@@ -77,6 +79,8 @@ export function useSisu({ customerId, focusBill, speakReplies = true, language =
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [actions, setActions] = useState<AgentAction[]>([]);
   const [memory, setMemory] = useState<CustomerMemory | null>(null);
+  const [watches, setWatches] = useState<PropertyWatch[]>([]);
+  const [notifications, setNotifications] = useState<WatchNotification[]>([]);
   const [heardLanguage, setHeardLanguage] = useState<string | null>(null); // the language of the last spoken question, when it was recognised
 
   const speaker = useRef<Speaker | null>(null);
@@ -103,16 +107,58 @@ export function useSisu({ customerId, focusBill, speakReplies = true, language =
   // Actions and memory belong to the customer, not to one conversation, so they load when the customer changes.
   const refresh = useCallback(async () => {
     if (!customerId) return;
-    const [list, remembered] = await Promise.all([fetchActions(customerId), fetchMemory(customerId)]);
+    const [list, remembered, watching] = await Promise.all([fetchActions(customerId), fetchMemory(customerId), fetchWatches(customerId)]);
     if (list) setActions(list.actions);
     if (remembered) setMemory(remembered);
+    if (watching) {
+      setWatches(watching.watches);
+      setNotifications(watching.notifications);
+    }
   }, [customerId]);
 
   useEffect(() => {
     setActions([]);
     setMemory(null);
+    setWatches([]);
+    setNotifications([]);
     void refresh();
   }, [refresh]);
+
+  // Property watches. An approved watch is checked here once a minute for as long as the hook is on screen:
+  // Sisu asks Context.dev whether a watched page changed, and a flat that now fits arrives in `notifications`.
+  const checkWatches = useCallback(
+    async (runNow = false): Promise<WatchCheck | null> => {
+      if (!customerId) return null;
+      const result = await pollWatches(customerId, runNow).catch(() => null);
+      await refresh();
+      return result;
+    },
+    [customerId, refresh],
+  );
+  const stopWatch = useCallback(
+    async (watchId: string): Promise<void> => {
+      if (!customerId) return;
+      await endWatch(customerId, watchId);
+      await refresh();
+    },
+    [customerId, refresh],
+  );
+  // Demo only: a made-up price drop on a watched flat. The notification it produces says it is simulated.
+  const simulatePriceDrop = useCallback(
+    async (watchId: string): Promise<WatchNotification | null> => {
+      if (!customerId) return null;
+      const { notification } = await simulateWatchDrop(customerId, watchId);
+      await refresh();
+      return notification;
+    },
+    [customerId, refresh],
+  );
+  const watching = watches.some((watch) => watch.status === "active");
+  useEffect(() => {
+    if (!watching) return;
+    const timer = setInterval(() => void checkWatches(), WATCH_CHECK_EVERY_MS);
+    return () => clearInterval(timer);
+  }, [watching, checkWatches]);
 
   const putAction = (action: AgentAction) => {
     setActions((all) => [action, ...all.filter((existing) => existing.id !== action.id)]);
@@ -254,9 +300,10 @@ export function useSisu({ customerId, focusBill, speakReplies = true, language =
       const { action } = await approveAction(customerId, actionId);
       putAction(action);
       setMoment(makeActivity("approved", action.confirmation ?? "Done, as a simulation"));
+      if (action.kind === "property_watch") void refresh(); // the approval started a watch: load it
       return action;
     },
-    [customerId],
+    [customerId, refresh],
   );
   const decline = useCallback(
     async (actionId: string): Promise<AgentAction | null> => {
@@ -348,5 +395,5 @@ export function useSisu({ customerId, focusBill, speakReplies = true, language =
       : speaking
         ? makeActivity("speaking")
         : (moment ?? (waiting ? makeActivity("waiting_for_approval", waiting.title, waiting.warning ?? null) : IDLE));
-  return { activity, status, messages, server, micError, voiceError, heardLanguage, ask, startTalking, stopTalking, testVoice, setVoice, cancel, reset, investigate, approve, decline, confirmBill, actions, memory, approvedMonthlySaving, refresh };
+  return { activity, status, messages, server, micError, voiceError, heardLanguage, ask, startTalking, stopTalking, testVoice, setVoice, cancel, reset, investigate, approve, decline, confirmBill, actions, memory, approvedMonthlySaving, refresh, watches, notifications, checkWatches, stopWatch, simulatePriceDrop };
 }

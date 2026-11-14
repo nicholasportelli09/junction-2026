@@ -1,7 +1,7 @@
 // Browser side of the agent. No React here, so any UI can use it.
 // It does three things: reads the event stream, records the microphone, and plays speech in order.
 import type { VoiceLanguage } from "./languages";
-import type { ActionList, AgentAction, BillPhotoResult, BillType, ChatTurn, CustomerMemory, MemoryKind, ResearchResult, SisuEvent } from "@/lib/types";
+import type { ActionList, AgentAction, BillPhotoResult, BillType, ChatTurn, CustomerMemory, MemoryKind, PropertyWatch, ResearchResult, SisuEvent, WatchCheck, WatchList, WatchNotification } from "@/lib/types";
 
 export type TurnInput = {
   customerId: string;
@@ -90,6 +90,17 @@ export async function fetchActions(customerId: string): Promise<ActionList | nul
   const response = await fetch(`/api/actions?customerId=${customerId}`).catch(() => null);
   return response?.ok ? ((await response.json()) as ActionList) : null;
 }
+
+// --- Property watches: what Sisu is watching for this visitor, and what it has found. ---
+export async function fetchWatches(customerId: string): Promise<WatchList | null> {
+  const response = await fetch(`/api/watch?customerId=${customerId}`).catch(() => null);
+  return response?.ok ? ((await response.json()) as WatchList) : null;
+}
+// Asks Context.dev whether a watched page changed. runNow also queues a fresh check of every page there.
+export const checkWatches = (customerId: string, runNow = false) => postJson<WatchCheck>("/api/watch/check", { customerId, runNow });
+export const stopWatch = (customerId: string, watchId: string) => postJson<{ watch: PropertyWatch }>(`/api/watch/${watchId}/stop`, { customerId });
+// Demo only: a made-up price drop, labelled as simulated in the notification and in the audit log.
+export const simulateWatchDrop = (customerId: string, watchId: string) => postJson<{ notification: WatchNotification }>(`/api/watch/${watchId}/simulate-drop`, { customerId });
 
 // --- Memory: what Sisu remembers between sessions. ---
 export async function fetchMemory(customerId: string): Promise<CustomerMemory | null> {
