@@ -9,7 +9,7 @@ type ExaResponse = { results?: { title?: string; url?: string; highlights?: stri
 // Exa "lite" search: about 0.2 s without page contents, about 0.5 s with highlights.
 export async function exaSearch(
   query: string,
-  options: { numResults: number; highlights: boolean; signal?: AbortSignal },
+  options: { numResults: number; highlights: boolean; signal?: AbortSignal; includeDomains?: string[] },
 ): Promise<ExaResult[]> {
   const { exa } = getConfig();
   if (!exa.apiKey) throw missingKey("Exa search", "EXA_API_KEY");
@@ -24,6 +24,7 @@ export async function exaSearch(
       type: exa.searchType,
       numResults: options.numResults,
       ...(options.highlights ? { contents: { highlights: true } } : {}),
+      ...(options.includeDomains?.length ? { includeDomains: options.includeDomains } : {}),
     }),
   });
   if (!response.ok) {
